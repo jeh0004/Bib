@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}{{ t.loans_title }} – Vereinsbibliothek{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4"><i class="bi bi-bookmark-check"></i> {{ t.loans_title }}</h1>
+
+<h2 class="h5">{{ t.loans_active }}</h2>
+{% if active %}
+<div class="table-responsive mb-4">
+  <table class="table table-hover align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>{{ t.loans_col_book }}</th>
+        <th>{{ t.loans_col_author }}</th>
+        <th>{{ t.loans_col_status }}</th>
+        <th>{{ t.loans_col_reserved }}</th>
+        <th>{{ t.loans_col_borrowed }}</th>
+        <th>{{ t.loans_col_due }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for loan in active %}
+      <tr>
+        <td><a href="{{ url_for('book_detail', book_id=loan.book_id) }}">{{ loan.title }}</a></td>
+        <td>{{ loan.author }}</td>
+        <td>
+          {% if loan.status == 'reserved' %}
+            <span class="badge bg-warning text-dark">{{ t.status_reserved }}</span>
+          {% else %}
+            <span class="badge bg-primary">{{ t.status_borrowed }}</span>
+          {% endif %}
+        </td>
+        <td>{{ loan.reserved_at[:10] }}</td>
+        <td>{{ loan.borrowed_at[:10] if loan.borrowed_at else '–' }}</td>
+        <td>
+          <form method="post" action="{{ url_for('return_book', book_id=loan.book_id) }}">
+            <button class="btn btn-sm btn-outline-warning"
+                    onclick="return confirm('{{ t.loans_confirm_return }}')">
+              <i class="bi bi-arrow-return-left"></i> {{ t.loans_return_btn }}
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-muted">{{ t.loans_no_active }}</p>
+{% endif %}
+
+{% if history %}
+<h2 class="h5 mt-4">{{ t.loans_history }}</h2>
+<div class="table-responsive">
+  <table class="table table-sm text-muted">
+    <thead>
+      <tr><th>{{ t.loans_col_book }}</th><th>{{ t.loans_col_borrowed }}</th><th>{{ t.status_returned }}</th></tr>
+    </thead>
+    <tbody>
+      {% for loan in history %}
+      <tr>
+        <td>{{ loan.title }}</td>
+        <td>{{ loan.reserved_at[:10] }}</td>
+        <td>{{ loan.returned_at[:10] if loan.returned_at else '–' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

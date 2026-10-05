@@ -1,0 +1,16 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8080:5000"
+    volumes:
+      - db_data:/data
+    environment:
+      - DATABASE=/data/vereinsbibliothek.db
+      - COOKIE_SECURE=false   # auf true setzen wenn HTTPS aktiv ist
+      # SECRET_KEY wird automatisch generiert und in /data/.secret_key gespeichert
+      # Alternativ: SECRET_KEY=<eigener_langer_zufaelliger_schluessel>
+    restart: unless-stopped
+
+volumes:
+  db_data:
