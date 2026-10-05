@@ -30,6 +30,11 @@ security_log = logging.getLogger('security')
 
 app = Flask(__name__)
 
+from catalog_extra import bp as catalog_extra_bp
+from loans_extra import bp as loans_extra_bp
+app.register_blueprint(catalog_extra_bp)
+app.register_blueprint(loans_extra_bp)
+
 DATABASE = os.environ.get('DATABASE', '/data/vereinsbibliothek.db')
 
 # ---------------------------------------------------------------------------
@@ -171,6 +176,10 @@ def init_db():
         db = get_db()
         with app.open_resource('schema.sql') as f:
             db.executescript(f.read().decode())
+        from migrations.catalog import migrate as migrate_catalog
+        from migrations.loans import migrate as migrate_loans
+        migrate_catalog(db)
+        migrate_loans(db)
         _add_column_if_missing(db, 'users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0')
         # Ensure settings singleton row exists
         db.execute(
