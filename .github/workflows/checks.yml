@@ -6,6 +6,7 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -14,5 +15,19 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python -m compileall -q app.py migrations catalog_extra loans_extra
       - run: python -m unittest discover -s tests -v
-      - run: docker compose config
-      - run: docker compose build
+      - run: docker compose -f compose.test.yml config
+      - run: docker compose -f compose.test.yml build
+      - name: Container smoke test
+        run: |
+          docker compose -f compose.test.yml up -d
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:8081/login; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f compose.test.yml logs
+          exit 1
+      - name: Cleanup
+        if: always()
+        run: docker compose -f compose.test.yml down -v

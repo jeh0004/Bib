@@ -40,6 +40,21 @@ class LoanTests(unittest.TestCase):
   self.db.commit()
   checkout(self.db,2,2)
   with self.assertRaises(ValueError):checkout(self.db,1,2)
+ def test_unassigned_legacy_loan_blocks_remaining_physical_copy(self):
+  self.db.execute("INSERT INTO loans(book_id,user_id,status) VALUES(1,1,'borrowed')")
+  self.db.commit()
+  checkout(self.db,2,2)
+  with self.assertRaises(ValueError):checkout(self.db,1,1)
+ def test_invalid_and_inactive_users(self):
+  with self.assertRaises(ValueError):checkout(self.db,1,999)
+  self.db.execute("UPDATE users SET is_active=0 WHERE id=1")
+  self.db.commit()
+  with self.assertRaises(ValueError):checkout(self.db,1,1)
+ def test_migration_preserves_existing_loans(self):
+  self.db.execute("INSERT INTO loans(book_id,user_id,status) VALUES(1,1,'borrowed')")
+  self.db.commit()
+  catalog_migrate(self.db);loan_migrate(self.db)
+  self.assertEqual(self.db.execute("SELECT status FROM loans").fetchone()[0],"borrowed")
  def test_repeat_migrations(self):
   catalog_migrate(self.db);loan_migrate(self.db)
   self.assertEqual(self.db.execute('SELECT count(*) FROM book_copies').fetchone()[0],2)

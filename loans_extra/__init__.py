@@ -19,6 +19,8 @@ def checkout(conn,copy_id,user_id):
         legacy=conn.execute('SELECT total_copies FROM books WHERE id=?',(book_id,)).fetchone()[0]
         if active>=min(copies,legacy): raise ValueError('Keine freie Kapazität')
         if conn.execute("SELECT 1 FROM loans WHERE copy_id=? AND status IN ('reserved','borrowed')",(copy_id,)).fetchone(): raise ValueError('Exemplar vergeben')
+        assigned=conn.execute("SELECT COUNT(DISTINCT copy_id) FROM loans WHERE book_id=? AND copy_id IS NOT NULL AND status IN ('reserved','borrowed')",(book_id,)).fetchone()[0]
+        if copies - assigned - (active - assigned) <= 0: raise ValueError('Alt-Ausleihen belegen den verfügbaren Bestand')
         if conn.execute("SELECT 1 FROM loans WHERE book_id=? AND user_id=? AND status IN ('reserved','borrowed')",(book_id,user_id)).fetchone(): raise ValueError('Bereits ausgeliehen/reserviert')
         days=conn.execute('SELECT loan_days FROM loan_policy WHERE id=1').fetchone()[0]
         due=(date.today()+timedelta(days=days)).isoformat()

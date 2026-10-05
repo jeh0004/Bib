@@ -1,0 +1,16 @@
+# Isolated test instance. Never use the production database volume.
+# Start only after CI checks and with a dedicated test directory.
+services:
+  web:
+    build: .
+    ports:
+      - "127.0.0.1:8081:5000"
+    volumes:
+      - phase3_test_data:/data
+    environment:
+      DATABASE: /data/vereinsbibliothek.db
+      COOKIE_SECURE: "false"
+    restart: "no"
+volumes:
+  phase3_test_data:
+    name: leihgut_phase3_test_data
