@@ -72,6 +72,8 @@
             <li><a class="dropdown-item" href="{{ url_for('admin_dashboard') }}"><i class="bi bi-speedometer2"></i> {{ t.nav_dashboard }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('admin_books') }}"><i class="bi bi-journals"></i> {{ t.nav_manage_books }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('admin_loans') }}"><i class="bi bi-arrow-left-right"></i> {{ t.nav_loans }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('catalog_extra.index') }}">Exemplarkatalog (Phase 3)</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('loans_extra.index') }}">Exemplar-Ausleihe (Phase 3)</a></li>
             <li><a class="dropdown-item" href="{{ url_for('admin_users') }}"><i class="bi bi-people"></i> {{ t.nav_users }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('admin_settings') }}"><i class="bi bi-palette"></i> {{ t.nav_appearance }}</a></li>

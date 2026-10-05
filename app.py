@@ -348,6 +348,43 @@ def admin_required(f):
 # Context helpers
 # ---------------------------------------------------------------------------
 
+def sync_book_copies(db, book_id, requested):
+    """Maintain copy rows for legacy book edit forms without losing loan history."""
+    import secrets
+    rows = db.execute(
+        "SELECT id,copy_number,is_active FROM book_copies WHERE book_id=? ORDER BY copy_number",
+        (book_id,)
+    ).fetchall()
+    active_loans = db.execute(
+        "SELECT COUNT(*) FROM loans WHERE book_id=? AND status IN ('reserved','borrowed')",
+        (book_id,)
+    ).fetchone()[0]
+    if requested < active_loans:
+        raise ValueError("Anzahl kleiner als aktive Ausleihen/Reservierungen")
+    active = [r for r in rows if r['is_active']]
+    if requested > len(active):
+        inactive = [r for r in rows if not r['is_active']]
+        for row in inactive[:requested-len(active)]:
+            db.execute("UPDATE book_copies SET is_active=1 WHERE id=?", (row['id'],))
+        remaining = requested - len(active) - min(len(inactive), requested-len(active))
+        next_num = max((r['copy_number'] for r in rows), default=0)
+        for i in range(remaining):
+            next_num += 1
+            db.execute("INSERT INTO book_copies(book_id,copy_number,inventory_code,qr_token) VALUES(?,?,?,?)",
+                       (book_id,next_num,f'LG-{book_id}-{next_num}',secrets.token_urlsafe(18)))
+    elif requested < len(active):
+        busy = {r[0] for r in db.execute(
+            "SELECT copy_id FROM loans WHERE book_id=? AND status IN ('reserved','borrowed') AND copy_id IS NOT NULL",
+            (book_id,))}
+        removable = [r for r in reversed(active) if r['id'] not in busy]
+        count = len(active)-requested
+        if len(removable) < count:
+            raise ValueError("Exemplare mit aktiver Ausleihe können nicht deaktiviert werden")
+        for row in removable[:count]:
+            db.execute("UPDATE book_copies SET is_active=0 WHERE id=?", (row['id'],))
+    db.execute("UPDATE books SET total_copies=? WHERE id=?", (requested,book_id))
+
+
 def get_available_copies(db, book_id):
     book = db.execute("SELECT total_copies FROM books WHERE id = ?", (book_id,)).fetchone()
     if not book:
@@ -663,11 +700,12 @@ def admin_add_book():
     if not title or not author:
         flash_msg('flash_book_missing_fields', 'danger')
         return redirect(url_for('admin_books'))
-    db.execute(
-        "INSERT INTO books (title, author, isbn, category, description, total_copies) VALUES (?,?,?,?,?,?)",
-        (title, author, isbn or None, category or None, description or None, total_copies)
-    )
-    db.commit()
+    with db:
+        cur = db.execute(
+            "INSERT INTO books (title, author, isbn, category, description, total_copies) VALUES (?,?,?,?,?,?)",
+            (title, author, isbn or None, category or None, description or None, total_copies)
+        )
+        sync_book_copies(db, cur.lastrowid, total_copies)
     flash_msg('flash_book_added', 'success', title=title)
     return redirect(url_for('admin_books'))
 
@@ -693,14 +731,17 @@ def admin_edit_book(book_id):
         if not title or not author:
             flash_msg('flash_book_missing_fields', 'danger')
         else:
-            db.execute("""
-                UPDATE books SET title=?, author=?, isbn=?, category=?, description=?, total_copies=?
-                WHERE id=?
-            """, (title, author, isbn or None, category or None, description or None,
-                  total_copies, book_id))
-            db.commit()
-            flash_msg('flash_book_updated', 'success')
-            return redirect(url_for('admin_books'))
+            try:
+                with db:
+                    sync_book_copies(db, book_id, total_copies)
+                    db.execute("""
+                        UPDATE books SET title=?, author=?, isbn=?, category=?, description=?
+                        WHERE id=?
+                    """, (title, author, isbn or None, category or None, description or None, book_id))
+                flash_msg('flash_book_updated', 'success')
+                return redirect(url_for('admin_books'))
+            except ValueError as exc:
+                flash(str(exc), 'danger')
     return render_template('admin/book_edit.html', book=book)
 
 
@@ -716,9 +757,12 @@ def admin_delete_book(book_id):
     if active > 0:
         flash_msg('flash_book_cannot_delete', 'danger')
         return redirect(url_for('admin_books'))
-    db.execute("DELETE FROM loans WHERE book_id = ?", (book_id,))
-    db.execute("DELETE FROM books WHERE id = ?", (book_id,))
-    db.commit()
+    with db:
+        db.execute("DELETE FROM book_tags WHERE book_id = ?", (book_id,))
+        db.execute("DELETE FROM book_genres WHERE book_id = ?", (book_id,))
+        db.execute("DELETE FROM loans WHERE book_id = ?", (book_id,))
+        db.execute("DELETE FROM book_copies WHERE book_id = ?", (book_id,))
+        db.execute("DELETE FROM books WHERE id = ?", (book_id,))
     flash_msg('flash_book_deleted', 'success')
     return redirect(url_for('admin_books'))
 
@@ -760,11 +804,14 @@ def admin_loans():
 def admin_confirm_loan(loan_id):
     db = get_db()
     due_date = request.form.get('due_date') or None
-    db.execute("""
-        UPDATE loans SET status = 'borrowed', borrowed_at = datetime('now'), due_date = ?
-        WHERE id = ? AND status = 'reserved'
-    """, (due_date, loan_id))
-    db.commit()
+    if not due_date:
+        days = db.execute("SELECT loan_days FROM loan_policy WHERE id=1").fetchone()[0]
+        due_date = (datetime.now(timezone.utc) + timedelta(days=days)).date().isoformat()
+    with db:
+        db.execute("""
+            UPDATE loans SET status = 'borrowed', borrowed_at = datetime('now'), due_date = ?
+            WHERE id = ? AND status = 'reserved'
+        """, (due_date, loan_id))
     flash_msg('flash_loan_confirmed', 'success')
     return redirect(url_for('admin_loans', status='reserved'))
 
