@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}{{ book.title }} – Vereinsbibliothek{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('catalog') }}">{{ t.nav_catalog }}</a></li>
+    <li class="breadcrumb-item active">{{ book.title }}</li>
+  </ol>
+</nav>
+
+<div class="row">
+  <div class="col-md-8">
+    <h1 class="h2">{{ book.title }}</h1>
+    <p class="lead text-muted">{{ book.author }}</p>
+
+    <div class="mb-3">
+      {% if book.category %}
+        <span class="badge bg-secondary me-1">{{ book.category }}</span>
+      {% endif %}
+      {% if book.isbn %}
+        <span class="text-muted small">ISBN: {{ book.isbn }}</span>
+      {% endif %}
+    </div>
+
+    {% if book.description %}
+      <p>{{ book.description }}</p>
+    {% endif %}
+  </div>
+
+  <div class="col-md-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">{{ t.book_availability }}</h5>
+        {% if available > 0 %}
+          <p class="text-success fw-bold"><i class="bi bi-check-circle"></i>
+            {{ available }} / {{ book.total_copies }} {{ t.book_available }}
+          </p>
+          {% if not my_loan %}
+            <form method="post" action="{{ url_for('reserve_book', book_id=book.id) }}">
+              <button type="submit" class="btn btn-primary w-100">
+                <i class="bi bi-bookmark-plus"></i> {{ t.book_reserve }}
+              </button>
+            </form>
+          {% endif %}
+        {% else %}
+          <p class="text-danger fw-bold"><i class="bi bi-x-circle"></i> {{ t.book_not_available }}</p>
+        {% endif %}
+
+        {% if my_loan %}
+          <div class="alert alert-info mt-3 mb-2">
+            <strong>{{ t.book_your_loan }}</strong><br>
+            {{ t.book_availability }}: <strong>
+              {% if my_loan.status == 'reserved' %}{{ t.book_status_reserved }}
+              {% else %}{{ t.book_status_borrowed }}{% endif %}
+            </strong>
+          </div>
+          <form method="post" action="{{ url_for('return_book', book_id=book.id) }}">
+            <button type="submit" class="btn btn-outline-warning w-100"
+                    onclick="return confirm('{{ t.book_confirm_return }}')">
+              <i class="bi bi-arrow-return-left"></i> {{ t.book_log_return }}
+            </button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if session.role == 'admin' and loans %}
+    <div class="card mt-3 shadow-sm">
+      <div class="card-header">{{ t.book_active_loans }}</div>
+      <ul class="list-group list-group-flush">
+        {% for loan in loans %}
+        <li class="list-group-item small">
+          <strong>{{ loan.full_name }}</strong>
+          <span class="badge bg-{{ 'warning text-dark' if loan.status == 'reserved' else 'primary' }} ms-1">
+            {% if loan.status == 'reserved' %}{{ t.status_reserved }}{% else %}{{ t.status_borrowed }}{% endif %}
+          </span><br>
+          <span class="text-muted">{{ t.book_since }} {{ loan.reserved_at[:10] }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if session.role == 'admin' %}
+<hr>
+<a href="{{ url_for('admin_edit_book', book_id=book.id) }}" class="btn btn-outline-secondary btn-sm">
+  <i class="bi bi-pencil"></i> {{ t.book_edit }}
+</a>
+{% endif %}
+{% endblock %}
