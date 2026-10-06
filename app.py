@@ -409,6 +409,28 @@ def get_available_copies(db, book_id):
     ).fetchone()[0]
     return max(0, min(book['total_copies'], physical) - active)
 
+def create_reservation(db, book_id, user_id):
+    """Atomically reserve a free slot for both web and API requests."""
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        existing = db.execute(
+            "SELECT 1 FROM loans WHERE book_id=? AND user_id=? AND status IN ('reserved','borrowed')",
+            (book_id, user_id)
+        ).fetchone()
+        if existing:
+            raise ValueError('already_reserved')
+        if get_available_copies(db, book_id) <= 0:
+            raise ValueError('not_available')
+        db.execute(
+            "INSERT INTO loans (book_id,user_id,status,reserved_at) VALUES (?,?,'reserved',datetime('now'))",
+            (book_id, user_id)
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
@@ -640,21 +662,14 @@ def book_detail(book_id):
 @login_required
 def reserve_book(book_id):
     db = get_db()
-    existing = db.execute("""
-        SELECT 1 FROM loans
-        WHERE book_id = ? AND user_id = ? AND status IN ('reserved','borrowed')
-    """, (book_id, session['user_id'])).fetchone()
-    if existing:
-        flash_msg('flash_already_reserved', 'warning')
+    try:
+        create_reservation(db, book_id, session['user_id'])
+    except ValueError as exc:
+        if str(exc) == 'already_reserved':
+            flash_msg('flash_already_reserved', 'warning')
+        else:
+            flash_msg('flash_not_available', 'danger')
         return redirect(url_for('book_detail', book_id=book_id))
-    if get_available_copies(db, book_id) <= 0:
-        flash_msg('flash_not_available', 'danger')
-        return redirect(url_for('book_detail', book_id=book_id))
-    db.execute(
-        "INSERT INTO loans (book_id, user_id, status) VALUES (?, ?, 'reserved')",
-        (book_id, session['user_id'])
-    )
-    db.commit()
     flash_msg('flash_reserved_ok', 'success')
     return redirect(url_for('my_loans'))
 
@@ -1221,19 +1236,12 @@ def api_reserve(book_id):
     if session.get('must_change_password'):
         return jsonify(error='You must change your password first.'), 403
     db = get_db()
-    if get_available_copies(db, book_id) < 1:
+    try:
+        create_reservation(db, book_id, session['user_id'])
+    except ValueError as exc:
+        if str(exc) == 'already_reserved':
+            return jsonify(error='You already have an active loan for this book.'), 409
         return jsonify(error='No copies available.'), 409
-    existing = db.execute(
-        "SELECT id FROM loans WHERE user_id = ? AND book_id = ? AND status IN ('reserved','borrowed')",
-        (session['user_id'], book_id)
-    ).fetchone()
-    if existing:
-        return jsonify(error='You already have an active loan for this book.'), 409
-    db.execute(
-        "INSERT INTO loans (user_id, book_id, status, reserved_at) VALUES (?, ?, 'reserved', datetime('now'))",
-        (session['user_id'], book_id)
-    )
-    db.commit()
     return jsonify(ok=True), 201
 
 
