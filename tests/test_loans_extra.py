@@ -28,8 +28,16 @@ class LoanTests(unittest.TestCase):
  def test_checkout_and_renewal(self):
   due=checkout(self.db,1,1)
   self.assertGreater(date.fromisoformat(due),date.today())
+  with self.assertRaises(ValueError): renew(self.db,1)
+  self.db.execute("UPDATE loans SET renewal_requested_at=datetime('now') WHERE id=1")
+  self.db.commit()
   self.assertGreater(date.fromisoformat(renew(self.db,1)),date.fromisoformat(due))
+  self.assertIsNone(self.db.execute("SELECT renewal_requested_at FROM loans WHERE id=1").fetchone()[0])
+  self.db.execute("UPDATE loans SET renewal_requested_at=datetime('now') WHERE id=1")
+  self.db.commit()
   renew(self.db,1)
+  self.db.execute("UPDATE loans SET renewal_requested_at=datetime('now') WHERE id=1")
+  self.db.commit()
   with self.assertRaises(ValueError):renew(self.db,1)
  def test_copy_not_double_loaned(self):
   checkout(self.db,1,1)
