@@ -900,6 +900,37 @@ def admin_delete_book(book_id):
 # Admin: loans
 # ---------------------------------------------------------------------------
 
+@app.route('/admin/statistics')
+@login_required
+@admin_required
+def admin_statistics():
+    db = get_db()
+    totals = db.execute("""
+        SELECT
+          (SELECT COUNT(*) FROM books) AS titles,
+          (SELECT COUNT(*) FROM book_copies WHERE is_active=1) AS copies,
+          (SELECT COUNT(*) FROM users WHERE is_active=1) AS members,
+          (SELECT COUNT(*) FROM loans WHERE status='borrowed') AS borrowed,
+          (SELECT COUNT(*) FROM loans WHERE status='reserved') AS reserved,
+          (SELECT COUNT(*) FROM loans WHERE status='borrowed'
+              AND due_date<date('now')) AS overdue,
+          (SELECT COUNT(*) FROM loan_waitlist) AS waiting,
+          (SELECT COUNT(*) FROM loans WHERE status='returned') AS returned
+    """).fetchone()
+    popular = db.execute("""
+        SELECT b.title, COUNT(l.id) AS total FROM books b
+        JOIN loans l ON l.book_id=b.id
+        GROUP BY b.id ORDER BY total DESC,b.title LIMIT 10
+    """).fetchall()
+    monthly = db.execute("""
+        SELECT substr(borrowed_at,1,7) AS month,COUNT(*) AS total
+        FROM loans WHERE borrowed_at IS NOT NULL
+        GROUP BY substr(borrowed_at,1,7) ORDER BY month DESC LIMIT 12
+    """).fetchall()
+    return render_template('admin/statistics.html',totals=totals,
+                           popular=popular,monthly=monthly)
+
+
 @app.route('/admin/loans')
 @login_required
 @admin_required
