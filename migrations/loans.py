@@ -12,3 +12,12 @@ def migrate(db):
         db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_loan_per_copy
             ON loans(copy_id) WHERE copy_id IS NOT NULL AND status IN ('reserved','borrowed')''')
         db.execute('CREATE INDEX IF NOT EXISTS idx_loans_due ON loans(status,due_date)')
+
+        db.execute("""CREATE TABLE IF NOT EXISTS loan_waitlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            book_id INTEGER NOT NULL REFERENCES books(id),
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(book_id,user_id)
+        )""")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_waitlist_order ON loan_waitlist(book_id,requested_at,id)")
