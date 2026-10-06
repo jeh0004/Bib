@@ -478,7 +478,7 @@ def register():
             flash('Sicherheitsfrage falsch.', 'danger')
         elif (not re.fullmatch(r'[A-Za-z0-9_.-]{3,40}', username)
               or len(full_name) < 2 or len(full_name) > 120
-              or len(email) > 254 or not re.fullmatch(r'[^@\\s]+@[^@\\s]+\\.[^@\\s]+', email)
+              or len(email) > 254 or not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', email)
               or pw != confirm or validate_password(pw)):
             _record_failed_attempt('register:' + request.remote_addr)
             flash('Angaben ungültig. Passwort: mindestens 12 Zeichen, Groß-/Kleinbuchstaben, Zahl und Sonderzeichen.', 'danger')
