@@ -8,7 +8,14 @@ def db():
     from app import get_db
     return get_db()
 def view(body,**kw):
-    return render_template_string('<!doctype html><html lang="de"><meta charset="utf-8"><title>LeihGut Katalog</title><nav><a href="/admin/">Admin</a> | <a href="/admin/catalog-extra/">Katalog</a> | <a href="/admin/loans-extra/">Ausleihen</a></nav>{% for cat,msg in get_flashed_messages(with_categories=true) %}<p>{{msg}}</p>{% endfor %}'+body+'</html>',**kw)
+    page = """{% extends 'base.html' %}{% block title %}Buchverwaltung – LeihGut{% endblock %}
+    {% block content %}<div class="mb-4"><a class="text-decoration-none" href="{{url_for('admin_dashboard')}}">← Verwaltung</a>
+    <span class="mx-2 text-muted">/</span><a href="{{url_for('catalog_extra.index')}}">Bücher verwalten</a>
+    <span class="mx-2 text-muted">/</span><a href="{{url_for('admin_loans')}}">Ausleihen</a></div>
+    {% for cat,msg in get_flashed_messages(with_categories=true) %}<div class="alert alert-{{'danger' if cat=='error' else cat}}">{{msg}}</div>{% endfor %}
+    <div class="card shadow-sm border-0"><div class="card-body p-4">""" + body + """</div></div>
+    {% endblock %}"""
+    return render_template_string(page,**kw)
 def isbn_lookup(isbn):
     """Fetch edition-specific metadata; never guess a match from title alone."""
     digits=''.join(ch for ch in isbn.upper() if ch.isdigit() or ch=='X')
@@ -26,8 +33,9 @@ def isbn_lookup(isbn):
     desc=description[0].get('text','') if description else ''
     if isinstance(desc,dict): desc=desc.get('value','')
     cover=entry.get('cover') or {}
+    cover_url=cover.get('large') or cover.get('medium') or ('https://covers.openlibrary.org/b/isbn/'+digits+'-M.jpg?default=false')
     return dict(title=entry.get('title',''),author=authors,isbn=digits,
-                description=desc,cover_url=cover.get('medium',''),
+                description=desc,cover_url=cover_url,
                 publisher=', '.join(x.get('name','') for x in entry.get('publishers',[])[:3]),
                 published=entry.get('publish_date',''),
                 pages=entry.get('number_of_pages'))
@@ -36,7 +44,31 @@ def isbn_lookup(isbn):
 @bp.get('/')
 def index():
     books=db().execute('SELECT b.*,COUNT(c.id) copies FROM books b LEFT JOIN book_copies c ON b.id=c.book_id GROUP BY b.id ORDER BY b.title').fetchall()
-    return view('<h1>Medienkatalog</h1><p><a href="{{url_for("catalog_extra.add")}}">Buch anlegen</a> | <a href="{{url_for("catalog_extra.inventory")}}">Inventarliste</a></p>{% for b in books %}<p>{% if b.cover_url %}<img width="45" src="{{b.cover_url}}" alt="Cover">{% endif %} <a href="{{url_for("catalog_extra.detail",book_id=b.id)}}">{{b.title}}</a> – {{b.author}} ({{b.copies}} Exemplare)</p>{% endfor %}',books=books)
+    return view('''<h1 class="h3">Bücher verwalten</h1><p class="text-muted">ISBN-Daten und Cover ergänzen, Bücher bearbeiten und Exemplare verwalten.</p><div class="d-flex flex-wrap gap-2 mb-4"><a class="btn btn-primary" href="{{url_for('catalog_extra.add')}}">Buch hinzufügen</a><a class="btn btn-outline-secondary" href="{{url_for('catalog_extra.inventory')}}">Inventarliste</a><form method="post" action="{{url_for('catalog_extra.enrich_missing')}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-outline-primary">Fehlende ISBN-Daten ergänzen (bis zu 10)</button></form></div><div class="list-group">{% for b in books %}<a class="list-group-item list-group-item-action d-flex align-items-center gap-3" href="{{url_for('catalog_extra.detail',book_id=b.id)}}">{% if b.cover_url %}<img src="{{b.cover_url}}" width="42" height="62" style="object-fit:contain" alt="">{% else %}<span class="fs-2">📖</span>{% endif %}<span class="flex-grow-1"><strong>{{b.title}}</strong><br><span class="text-muted small">{{b.author}} · {{b.copies}} Exemplare</span></span><span aria-hidden="true">›</span></a>{% endfor %}</div>''',books=books)
+@bp.post('/enrich-missing')
+def enrich_missing():
+    conn=db()
+    rows=conn.execute("""SELECT id,isbn,title,author,description,cover_url,publisher,published,pages
+        FROM books WHERE isbn IS NOT NULL AND TRIM(isbn)!=''
+        AND (cover_url IS NULL OR TRIM(cover_url)='' OR publisher IS NULL OR TRIM(publisher)=''
+             OR published IS NULL OR TRIM(published)='' OR description IS NULL OR TRIM(description)='')
+        ORDER BY id LIMIT 10""").fetchall()
+    changed=0; failed=0
+    for book in rows:
+        try:
+            meta=isbn_lookup(book['isbn'])
+            updates={field:meta[field] for field in ('title','author','description','cover_url','publisher','published','pages')
+                     if not book[field] and meta.get(field)}
+            if updates:
+                with conn:
+                    conn.execute('UPDATE books SET '+','.join(f'{field}=?' for field in updates)+' WHERE id=?',
+                                 list(updates.values())+[book['id']])
+                changed+=1
+        except Exception:
+            failed+=1
+    flash(f'{changed} Bücher ergänzt, {failed} ISBN-Abfragen fehlgeschlagen. Erneut klicken für die nächsten Bücher.','info')
+    return redirect(url_for('.index'))
+
 @bp.get('/inventory')
 def inventory():
     conn=db()
