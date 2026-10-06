@@ -632,15 +632,23 @@ def catalog():
     term = f"%{q}%"
     books = db.execute("""
         SELECT b.*,
-               (b.total_copies -
-                COUNT(CASE WHEN l.status IN ('reserved','borrowed') THEN 1 END)
-               ) AS available
+               MAX(0, MIN(b.total_copies,
+                   (SELECT COUNT(*) FROM book_copies c
+                    WHERE c.book_id=b.id AND c.is_active=1))
+                   - (SELECT COUNT(*) FROM loans l WHERE l.book_id=b.id
+                      AND l.status IN ('reserved','borrowed'))) AS available
         FROM books b
-        LEFT JOIN loans l ON l.book_id = b.id
         WHERE b.title LIKE ? OR b.author LIKE ? OR b.category LIKE ?
-        GROUP BY b.id
+           OR b.isbn LIKE ? OR EXISTS (
+               SELECT 1 FROM book_copies c WHERE c.book_id=b.id
+               AND (c.barcode LIKE ? OR c.inventory_code LIKE ?
+                    OR c.location LIKE ? OR c.shelf LIKE ?))
+           OR EXISTS (SELECT 1 FROM book_tags bt JOIN tags t ON t.id=bt.tag_id
+                      WHERE bt.book_id=b.id AND t.name LIKE ?)
+           OR EXISTS (SELECT 1 FROM book_genres bg JOIN genres ge ON ge.id=bg.genre_id
+                      WHERE bg.book_id=b.id AND ge.name LIKE ?)
         ORDER BY b.title
-    """, (term, term, term)).fetchall()
+    """, (term,)*10).fetchall()
     return render_template('catalog.html', books=books, q=q)
 
 
