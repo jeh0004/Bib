@@ -15,6 +15,7 @@
         <th>{{ t.loans_col_reserved }}</th>
         <th>{{ t.loans_col_borrowed }}</th>
         <th>{{ t.loans_col_due }}</th>
+        <th>Aktion</th>
       </tr>
     </thead>
     <tbody>
@@ -31,8 +32,10 @@
         </td>
         <td>{{ loan.reserved_at[:10] }}</td>
         <td>{{ loan.borrowed_at[:10] if loan.borrowed_at else '–' }}</td>
+        <td>{{ loan.due_date or '–' }}</td>
         <td>
           <form method="post" action="{{ url_for('return_book', book_id=loan.book_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
             <button class="btn btn-sm btn-outline-warning"
                     onclick="return confirm('{{ t.loans_confirm_return }}')">
               <i class="bi bi-arrow-return-left"></i> {{ t.loans_return_btn }}
