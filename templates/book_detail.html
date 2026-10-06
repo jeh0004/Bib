@@ -1,105 +1,46 @@
 {% extends 'base.html' %}
-{% block title %}{{ book.title }} – Vereinsbibliothek{% endblock %}
+{% block title %}{{book.title}} – LeihGut{% endblock %}
 {% block content %}
-<nav aria-label="breadcrumb" class="mb-3">
-  <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="{{ url_for('catalog') }}">{{ t.nav_catalog }}</a></li>
-    <li class="breadcrumb-item active">{{ book.title }}</li>
-  </ol>
-</nav>
-
-<div class="row">
-  <div class="col-md-8">
-    <div class="d-flex gap-3 align-items-start">
-    {% if book.cover_url %}<img src="{{ book.cover_url }}" alt="Cover von {{ book.title }}" loading="lazy" style="width:130px;max-height:200px;object-fit:contain">{% endif %}
-    <div><h1 class="h2">{{ book.title }}</h1>
-    <p class="lead text-muted">{{ book.author }}</p>
-    {% if book.publisher or book.published or book.pages %}<p class="small text-muted">{{ book.publisher or "" }}{% if book.published %} · {{ book.published }}{% endif %}{% if book.pages %} · {{ book.pages }} Seiten{% endif %}</p>{% endif %}</div></div>
-
-    <div class="mb-3">
-      {% if book.category %}
-        <span class="badge bg-secondary me-1">{{ book.category }}</span>
-      {% endif %}
-      {% if book.isbn %}
-        <span class="text-muted small">ISBN: {{ book.isbn }}</span>
-      {% endif %}
-    </div>
-
-    {% if book.description %}
-      <p>{{ book.description }}</p>
-    {% endif %}
-  </div>
-
-  <div class="col-md-4">
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <h5 class="card-title">{{ t.book_availability }}</h5>
-        {% if available > 0 %}
-          <p class="text-success fw-bold"><i class="bi bi-check-circle"></i>
-            {{ available }} / {{ book.total_copies }} {{ t.book_available }}
-          </p>
-          {% if not my_loan and can_reserve %}
-            <form method="post" action="{{ url_for('reserve_book', book_id=book.id) }}">
-              <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-              <button type="submit" class="btn btn-primary w-100">
-                <i class="bi bi-bookmark-plus"></i> {{ t.book_reserve }}
-              </button>
-            </form>
-          {% endif %}
-        {% else %}
-          <p class="text-danger fw-bold"><i class="bi bi-x-circle"></i> {{ t.book_not_available }}</p>
-        {% endif %}
-
-        {% if waitlist_position %}
-          <p class="text-info">Warteliste: Platz {{ waitlist_position }} von {{ waitlist_count }}.</p>
-        {% elif not my_loan and (available <= 0 or waitlist_count > 0) %}
-          <form method="post" action="{{ url_for('join_waitlist', book_id=book.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-            <button class="btn btn-outline-primary w-100">Auf die Warteliste setzen</button>
-          </form>
-        {% endif %}
-        {% if my_loan %}
-          <div class="alert alert-info mt-3 mb-2">
-            <strong>{{ t.book_your_loan }}</strong><br>
-            {{ t.book_availability }}: <strong>
-              {% if my_loan.status == 'reserved' %}{{ t.book_status_reserved }}
-              {% else %}{{ t.book_status_borrowed }}{% endif %}
-            </strong>
-          </div>
-          <form method="post" action="{{ url_for('return_book', book_id=book.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-            <button type="submit" class="btn btn-outline-warning w-100"
-                    onclick="return confirm('{{ t.book_confirm_return }}')">
-              <i class="bi bi-arrow-return-left"></i> {{ t.book_log_return }}
-            </button>
-          </form>
-        {% endif %}
+<nav aria-label="Navigation" class="mb-4"><a href="{{url_for('catalog')}}" class="text-decoration-none">← Zurück zum Katalog</a></nav>
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="d-flex flex-column flex-sm-row gap-4">
+      <div class="bg-light rounded d-flex justify-content-center align-items-center p-3" style="width:190px;min-width:190px;min-height:230px">
+        {% if book.cover_url %}<img src="{{book.cover_url}}" alt="Buchcover: {{book.title}}" style="max-width:100%;max-height:260px;object-fit:contain" loading="lazy">{% else %}<i class="bi bi-book display-2 text-secondary" aria-hidden="true"></i>{% endif %}
       </div>
+      <div><h1 class="h2 mb-2">{{book.title}}</h1><p class="fs-5 text-muted mb-3">{{book.author}}</p>
+      {% if book.category %}<span class="badge bg-light text-dark border">{{book.category}}</span>{% endif %}
+      {% if book.publisher or book.published %}<p class="mt-3 mb-1 text-muted">{{book.publisher or ''}}{% if book.published %} · {{book.published}}{% endif %}</p>{% endif %}
+      {% if book.pages %}<p class="text-muted small">{{book.pages}} Seiten</p>{% endif %}
+      {% if book.isbn %}<p class="text-muted small">ISBN {{book.isbn}}</p>{% endif %}</div>
     </div>
-
-    {% if session.role == 'admin' and loans %}
-    <div class="card mt-3 shadow-sm">
-      <div class="card-header">{{ t.book_active_loans }}</div>
-      <ul class="list-group list-group-flush">
-        {% for loan in loans %}
-        <li class="list-group-item small">
-          <strong>{{ loan.full_name }}</strong>
-          <span class="badge bg-{{ 'warning text-dark' if loan.status == 'reserved' else 'primary' }} ms-1">
-            {% if loan.status == 'reserved' %}{{ t.status_reserved }}{% else %}{{ t.status_borrowed }}{% endif %}
-          </span><br>
-          <span class="text-muted">{{ t.book_since }} {{ loan.reserved_at[:10] }}</span>
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
+    {% if book.description %}<section class="mt-4"><h2 class="h5">Über dieses Buch</h2><p style="white-space:pre-line">{{book.description}}</p></section>{% endif %}
+  </div>
+  <div class="col-lg-5">
+    <div class="card shadow-sm border-0"><div class="card-body p-4">
+      <h2 class="h5 mb-3">Dieses Buch ausleihen</h2>
+      {% if my_loan %}
+        {% if my_loan.status == 'reserved' %}
+          <div class="alert alert-success"><strong>Für dich reserviert</strong><p class="mb-0 mt-1">Deine Reservierung ist eingegangen. Die Ausgabe erfolgt über die Bibliotheksverwaltung.</p></div>
+        {% else %}
+          <div class="alert alert-info"><strong>Du hast dieses Buch ausgeliehen.</strong>{% if my_loan.due_date %}<p class="mb-0 mt-1">Rückgabe bis {{my_loan.due_date}}</p>{% endif %}</div>
+        {% endif %}
+        <a href="{{url_for('my_loans')}}" class="btn btn-primary w-100">Meine Ausleihen ansehen</a>
+      {% elif waitlist_position %}
+        <div class="alert alert-info"><strong>Du stehst auf der Warteliste.</strong><p class="mb-0 mt-1">Dein Platz: {{waitlist_position}} von {{waitlist_count}}.</p></div>
+        <p class="small text-muted">Sobald ein Exemplar frei wird, kannst du es entsprechend der Reihenfolge reservieren.</p>
+        {% if can_reserve %}<form method="post" action="{{url_for('reserve_book',book_id=book.id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-primary w-100">Jetzt reservieren</button></form>{% endif %}
+      {% elif can_reserve %}
+        <p class="text-success fw-semibold"><i class="bi bi-check-circle"></i> {{available}} {% if available == 1 %}Exemplar verfügbar{% else %}Exemplare verfügbar{% endif %}</p>
+        <p class="text-muted small">Reserviere das Buch mit einem Klick. Die Bibliotheksverwaltung bestätigt später die Ausgabe.</p>
+        <form method="post" action="{{url_for('reserve_book',book_id=book.id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-primary btn-lg w-100">Buch reservieren</button></form>
+      {% else %}
+        <p class="text-warning-emphasis fw-semibold">{% if available == 0 %}Zurzeit alle Exemplare vergeben{% else %}Andere Mitglieder warten bereits{% endif %}</p>
+        <p class="text-muted small">Du kannst dich unverbindlich auf die Warteliste setzen. Es werden keine automatischen Benachrichtigungen verschickt.</p>
+        <form method="post" action="{{url_for('join_waitlist',book_id=book.id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-outline-primary w-100">Auf die Warteliste</button></form>
+      {% endif %}
+    </div></div>
+    {% if session.role == 'admin' %}<div class="mt-3 d-grid gap-2"><a class="btn btn-outline-secondary" href="{{url_for('catalog_extra.detail',book_id=book.id)}}">Buchdaten und Exemplare verwalten</a><a class="btn btn-outline-secondary" href="{{url_for('admin_loans')}}">Reservierungen bearbeiten</a></div>{% endif %}
   </div>
 </div>
-
-{% if session.role == 'admin' %}
-<hr>
-<a href="{{ url_for('admin_edit_book', book_id=book.id) }}" class="btn btn-outline-secondary btn-sm">
-  <i class="bi bi-pencil"></i> {{ t.book_edit }}
-</a>
-{% endif %}
 {% endblock %}
