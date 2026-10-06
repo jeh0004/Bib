@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Statistik – LeihGut{% endblock %}
+{% block content %}
+<h1>Bibliotheksstatistik</h1>
+<p>Aktueller Datenstand (ohne personenbezogene Ausleihdetails).</p>
+<div class="row g-3 mb-4">
+{% for label,key in [('Titel','titles'),('Aktive Exemplare','copies'),('Aktive Mitglieder','members'),('Ausgeliehen','borrowed'),('Reserviert','reserved'),('Überfällig','overdue'),('Warteliste','waiting'),('Abgeschlossen','returned')] %}
+<div class="col-6 col-md-3"><div class="card"><div class="card-body">
+<div class="small text-muted">{{ label }}</div><div class="h3">{{ totals[key] }}</div>
+</div></div></div>
+{% endfor %}
+</div>
+<h2 class="h5">Häufig nachgefragte Titel</h2>
+<table class="table table-sm"><thead><tr><th>Buch</th><th>Vorgänge</th></tr></thead>
+<tbody>{% for b in popular %}<tr><td>{{ b.title }}</td><td>{{ b.total }}</td></tr>{% endfor %}</tbody></table>
+<h2 class="h5">Ausleihen nach Monat</h2>
+<table class="table table-sm"><thead><tr><th>Monat</th><th>Ausleihen</th></tr></thead>
+<tbody>{% for m in monthly %}<tr><td>{{ m.month }}</td><td>{{ m.total }}</td></tr>{% endfor %}</tbody></table>
+{% endblock %}
