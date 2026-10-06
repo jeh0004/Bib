@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Mitglied registrieren – LeihGut{% endblock %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-md-7 col-lg-5">
+<h1 class="h4">Mitglied registrieren</h1>
+<p>Nach der Registrierung muss ein Administrator dein Konto freischalten.</p>
+<form method="post">
+<input type="hidden" name="csrf_token" value="{{ session.get('csrf_token','') }}">
+<div class="mb-3"><label class="form-label">Benutzername</label><input class="form-control" name="username" minlength="3" maxlength="40" autocomplete="username" required></div>
+<div class="mb-3"><label class="form-label">Vollständiger Name</label><input class="form-control" name="full_name" maxlength="120" required></div>
+<div class="mb-3"><label class="form-label">E-Mail</label><input class="form-control" type="email" name="email" maxlength="254" required></div>
+<div class="mb-3"><label class="form-label">Passwort</label><input class="form-control" type="password" name="password" minlength="12" autocomplete="new-password" required><small>Mindestens 12 Zeichen, Groß- und Kleinbuchstaben, Zahl und Sonderzeichen.</small></div>
+<div class="mb-3"><label class="form-label">Passwort wiederholen</label><input class="form-control" type="password" name="password_confirm" minlength="12" autocomplete="new-password" required></div>
+<div class="mb-3"><label class="form-label">Sicherheitsfrage: {{ captcha_a }} + {{ captcha_b }} = ?</label><input class="form-control" type="number" name="captcha" required></div>
+<button class="btn btn-primary" type="submit">Registrierung beantragen</button>
+<a class="btn btn-link" href="{{ url_for('login') }}">Zur Anmeldung</a>
+</form></div></div>
+{% endblock %}

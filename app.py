@@ -331,6 +331,11 @@ def login_required(f):
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
+        current = get_db().execute('SELECT role,is_active FROM users WHERE id=?', (session['user_id'],)).fetchone()
+        if not current or not current['is_active']:
+            session.clear()
+            return redirect(url_for('login'))
+        session['role'] = current['role']
         if session.get('must_change_password') and request.endpoint != 'change_password':
             flash_msg('flash_must_change_pw', 'warning')
             return redirect(url_for('change_password'))
@@ -341,7 +346,8 @@ def login_required(f):
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if session.get('role') != 'admin':
+        current = get_db().execute('SELECT role,is_active FROM users WHERE id=?', (session.get('user_id'),)).fetchone()
+        if not current or not current['is_active'] or current['role'] != 'admin':
             abort(403)
         return f(*args, **kwargs)
     return decorated
@@ -452,6 +458,44 @@ def login():
 
     a, b = new_captcha()
     return render_template('login.html', captcha_a=a, captcha_b=b)
+
+
+# Public registration: pending approval, never creates admins.
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if session.get('user_id'):
+        return redirect(url_for('catalog'))
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        full_name = request.form.get('full_name', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        pw = request.form.get('password', '')
+        confirm = request.form.get('password_confirm', '')
+        if _is_rate_limited('register:' + request.remote_addr):
+            flash('Zu viele Versuche. Bitte später erneut versuchen.', 'danger')
+        elif not check_captcha():
+            _record_failed_attempt('register:' + request.remote_addr)
+            flash('Sicherheitsfrage falsch.', 'danger')
+        elif (not re.fullmatch(r'[A-Za-z0-9_.-]{3,40}', username)
+              or len(full_name) < 2 or len(full_name) > 120
+              or len(email) > 254 or not re.fullmatch(r'[^@\\s]+@[^@\\s]+\\.[^@\\s]+', email)
+              or pw != confirm or validate_password(pw)):
+            _record_failed_attempt('register:' + request.remote_addr)
+            flash('Angaben ungültig. Passwort: mindestens 12 Zeichen, Groß-/Kleinbuchstaben, Zahl und Sonderzeichen.', 'danger')
+        else:
+            try:
+                with get_db():
+                    get_db().execute(
+                        """INSERT INTO users(username,password_hash,full_name,email,role,is_active,must_change_password)
+                           VALUES(?,?,?,?, 'user',0,0)""",
+                        (username, generate_password_hash(pw), full_name, email))
+                flash('Registrierung eingegangen. Ein Administrator muss dein Konto freischalten.', 'success')
+                return redirect(url_for('login'))
+            except sqlite3.IntegrityError:
+                _record_failed_attempt('register:' + request.remote_addr)
+                flash('Benutzername bereits vergeben.', 'danger')
+    a, b = new_captcha()
+    return render_template('register.html', captcha_a=a, captcha_b=b)
 
 
 @app.route('/logout')
@@ -914,6 +958,14 @@ def admin_edit_user(user_id):
         is_active = 1 if request.form.get('is_active') else 0
         if role not in ('admin', 'user'):
             role = 'user'
+        if user_id == session.get('user_id') and (role != 'admin' or not is_active):
+            flash('Du kannst deine eigene Administratorrolle nicht entfernen oder dich selbst sperren.', 'danger')
+            return redirect(url_for('admin_users'))
+        if user['role'] == 'admin' and (role != 'admin' or not is_active):
+            count = db.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1").fetchone()[0]
+            if count <= 1:
+                flash('Der letzte aktive Administrator darf nicht gesperrt oder herabgestuft werden.', 'danger')
+                return redirect(url_for('admin_users'))
         db.execute("""
             UPDATE users SET full_name=?, email=?, role=?, is_active=?
             WHERE id=?

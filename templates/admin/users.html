@@ -69,7 +69,7 @@
           {% elif user.is_active %}
             <span class="badge bg-success">{{ t.status_active }}</span>
           {% else %}
-            <span class="badge bg-danger">{{ t.status_locked }}</span>
+            <span class="badge bg-danger">Freischaltung ausstehend / gesperrt</span>
           {% endif %}
         </td>
         <td class="text-center">{{ user.active_loans }}</td>
