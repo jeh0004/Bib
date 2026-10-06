@@ -75,10 +75,10 @@ def add():
         title=request.form.get('title','').strip();author=request.form.get('author','').strip()
         if title and author:
             with conn:
-                cur=conn.execute('INSERT INTO books(title,author,isbn,category,description,total_copies,cover_url) VALUES(?,?,?,?,?,0,?)',(title,author,request.form.get('isbn',''),request.form.get('category',''),request.form.get('description',''),request.form.get('cover_url','')))
+                cur=conn.execute('INSERT INTO books(title,author,isbn,category,description,total_copies,cover_url,publisher,published,pages) VALUES(?,?,?,?,?,0,?,?,?,?)',(title,author,request.form.get('isbn',''),request.form.get('category',''),request.form.get('description',''),request.form.get('cover_url',''),request.form.get('publisher',''),request.form.get('published',''),request.form.get('pages') or None))
             return redirect(url_for('.detail',book_id=cur.lastrowid))
         flash('Titel und Autor sind erforderlich.','danger')
-    return view('<h1>Buch anlegen</h1><form method="get"><input name="isbn" placeholder="ISBN"><button>ISBN suchen</button></form><form method="post"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}">{% for field in ["title","author","isbn","category","cover_url","description"] %}<p><label>{{field}} <input name="{{field}}" value="{{meta.get(field,"")}}"></label></p>{% endfor %}<button>Speichern</button></form>',meta=meta)
+    return view('<h1>Buch anlegen</h1><form method="get"><input name="isbn" placeholder="ISBN"><button>ISBN suchen</button></form><form method="post"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}">{% for field in ["title","author","isbn","category","cover_url","description","publisher","published","pages"] %}<p><label>{{field}} <input name="{{field}}" value="{{meta.get(field,"")}}"></label></p>{% endfor %}<button>Speichern</button></form>',meta=meta)
 @bp.route('/<int:book_id>',methods=['GET','POST'])
 def detail(book_id):
     conn=db();book=conn.execute('SELECT * FROM books WHERE id=?',(book_id,)).fetchone()
@@ -86,6 +86,7 @@ def detail(book_id):
     if request.method=='POST':
         action=request.form.get('action')
         try:
+            meta=isbn_lookup(book['isbn']) if action=='enrich' and book['isbn'] else None
             with conn:
                 if action=='add_copy':
                     number=conn.execute('SELECT COALESCE(MAX(copy_number),0)+1 FROM book_copies WHERE book_id=?',(book_id,)).fetchone()[0]
@@ -103,7 +104,6 @@ def detail(book_id):
                         conn.execute(f'INSERT INTO {link}(book_id,{fk}) VALUES(?,?)',(book_id,id))
                 elif action=='enrich':
                     if not book['isbn']: raise ValueError('Bitte zuerst eine ISBN hinterlegen')
-                    meta=isbn_lookup(book['isbn'])
                     updates={}
                     for field in ('title','author','description','cover_url','publisher','published','pages'):
                         if not book[field] and meta.get(field):
