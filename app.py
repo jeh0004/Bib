@@ -466,21 +466,25 @@ def register():
     if session.get('user_id'):
         return redirect(url_for('catalog'))
     if request.method == 'POST':
+        from registration_limit import consume_registration_attempt
+        # All registration submissions count, including successful ones.
+        # One SQLite write transaction serializes checks across Gunicorn workers.
+        if not consume_registration_attempt(DATABASE, request.remote_addr or 'unknown'):
+            security_log.warning("Registration throttled | ip=%s", request.remote_addr)
+            flash('Zu viele Registrierungsversuche. Bitte in 15 Minuten erneut versuchen.', 'danger')
+            a, b = new_captcha()
+            return render_template('register.html', captcha_a=a, captcha_b=b)
         username = request.form.get('username', '').strip()
         full_name = request.form.get('full_name', '').strip()
         email = request.form.get('email', '').strip().lower()
         pw = request.form.get('password', '')
         confirm = request.form.get('password_confirm', '')
-        if _is_rate_limited('register:' + request.remote_addr):
-            flash('Zu viele Versuche. Bitte später erneut versuchen.', 'danger')
-        elif not check_captcha():
-            _record_failed_attempt('register:' + request.remote_addr)
+        if not check_captcha():
             flash('Sicherheitsfrage falsch.', 'danger')
         elif (not re.fullmatch(r'[A-Za-z0-9_.-]{3,40}', username)
               or len(full_name) < 2 or len(full_name) > 120
               or len(email) > 254 or not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', email)
               or pw != confirm or validate_password(pw)):
-            _record_failed_attempt('register:' + request.remote_addr)
             flash('Angaben ungültig. Passwort: mindestens 12 Zeichen, Groß-/Kleinbuchstaben, Zahl und Sonderzeichen.', 'danger')
         else:
             try:
@@ -492,8 +496,7 @@ def register():
                 flash('Registrierung eingegangen. Ein Administrator muss dein Konto freischalten.', 'success')
                 return redirect(url_for('login'))
             except sqlite3.IntegrityError:
-                _record_failed_attempt('register:' + request.remote_addr)
-                flash('Benutzername bereits vergeben.', 'danger')
+                    flash('Benutzername bereits vergeben.', 'danger')
     a, b = new_captcha()
     return render_template('register.html', captcha_a=a, captcha_b=b)
 

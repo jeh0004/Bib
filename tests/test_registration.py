@@ -65,23 +65,36 @@ class RegistrationTests(unittest.TestCase):
         with c.session_transaction() as sess:
             self.assertNotIn('user_id',sess)
 
-    def test_registration_failed_attempts_are_limited(self):
-        from app import _login_attempts
+    def test_registration_limit_persists_and_is_shared(self):
+        from registration_limit import consume_registration_attempt
+        import sqlite3
+        db_path=os.environ['DATABASE']
+        ip='198.51.100.8'
+        for _ in range(5):
+            self.assertTrue(consume_registration_attempt(db_path,ip,now=10000))
+        # Reopening SQLite simulates independent processes.
+        with sqlite3.connect(db_path) as db:
+            self.assertEqual(db.execute(
+                'SELECT COUNT(*) FROM registration_attempts WHERE client_ip=?',
+                (ip,)).fetchone()[0],5)
+        self.assertFalse(consume_registration_attempt(db_path,ip,now=10001))
+        self.assertTrue(consume_registration_attempt(db_path,'198.51.100.9',now=10001))
+        self.assertTrue(consume_registration_attempt(db_path,ip,now=10901))
+
+    def test_registration_route_throttles_even_valid_requests(self):
         c=self.app.test_client()
         for _ in range(5):
             c.get('/register')
             with c.session_transaction() as sess:
                 token=sess['csrf_token']
-            c.post('/register',data={'csrf_token':token,'captcha':'999'})
-        self.assertEqual(len(_login_attempts['register:127.0.0.1']),5)
+            c.post('/register',data={'csrf_token':token,'captcha':'999'}, environ_overrides={'REMOTE_ADDR':'203.0.113.25'})
         c.get('/register')
         with c.session_transaction() as sess:
             token=sess['csrf_token']
             answer=sess['captcha_ans']
-        blocked=c.post('/register',data={'csrf_token':token,'captcha':str(answer),
+        blocked=c.post('/register',environ_overrides={'REMOTE_ADDR':'203.0.113.25'},data={'csrf_token':token,'captcha':str(answer),
             'username':'limitedmember','full_name':'Limited Member',
             'email':'limited@example.org','password':'Strong!Password123',
             'password_confirm':'Strong!Password123'})
         self.assertEqual(blocked.status_code,200)
-        self.assertIn('Zu viele Versuche',blocked.get_data(as_text=True))
-        _login_attempts.pop('register:127.0.0.1',None)
+        self.assertIn('Zu viele Registrierungsversuche',blocked.get_data(as_text=True))
