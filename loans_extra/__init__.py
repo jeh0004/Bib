@@ -38,6 +38,7 @@ def renew(conn,loan_id):
         p=conn.execute('SELECT loan_days,max_renewals FROM loan_policy WHERE id=1').fetchone()
         if l['renewal_count']>=p['max_renewals']: raise ValueError('Verlängerungslimit erreicht')
         if conn.execute("SELECT 1 FROM loans WHERE book_id=? AND status='reserved' AND id<>?",(l['book_id'],loan_id)).fetchone(): raise ValueError('Reservierung vorhanden')
+        if conn.execute("SELECT 1 FROM loan_waitlist WHERE book_id=?",(l['book_id'],)).fetchone(): raise ValueError('Warteliste vorhanden')
         due=(max(date.today(),date.fromisoformat(l['due_date']))+timedelta(days=p['loan_days'])).isoformat()
         conn.execute('UPDATE loans SET due_date=?,renewal_count=renewal_count+1 WHERE id=?',(due,loan_id))
         conn.commit();return due
