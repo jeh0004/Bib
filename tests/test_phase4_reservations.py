@@ -11,6 +11,7 @@ def database():
     db.executescript("""
         CREATE TABLE books(id INTEGER PRIMARY KEY, total_copies INTEGER);
         CREATE TABLE book_copies(id INTEGER PRIMARY KEY, book_id INTEGER, is_active INTEGER);
+        CREATE TABLE loan_waitlist(id INTEGER PRIMARY KEY, book_id INTEGER, user_id INTEGER, requested_at TEXT DEFAULT (datetime('now')));
         CREATE TABLE loans(
             id INTEGER PRIMARY KEY, book_id INTEGER, user_id INTEGER,
             status TEXT, reserved_at TEXT
@@ -39,6 +40,14 @@ class ReservationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not_available"):
             create_reservation(self.db, 1, 11)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM loans").fetchone()[0], 1)
+
+    def test_waitlist_priority(self):
+        self.db.execute("INSERT INTO loan_waitlist(book_id,user_id) VALUES(1,12)")
+        self.db.commit()
+        with self.assertRaisesRegex(ValueError, "waitlist_priority"):
+            create_reservation(self.db, 1, 10)
+        create_reservation(self.db, 1, 12)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM loan_waitlist").fetchone()[0], 0)
 
     def test_legacy_total_copies_limit(self):
         self.db.execute("UPDATE books SET total_copies=0 WHERE id=1")
