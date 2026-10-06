@@ -10,19 +10,29 @@ def db():
 def view(body,**kw):
     return render_template_string('<!doctype html><html lang="de"><meta charset="utf-8"><title>LeihGut Katalog</title><nav><a href="/admin/">Admin</a> | <a href="/admin/catalog-extra/">Katalog</a> | <a href="/admin/loans-extra/">Ausleihen</a></nav>{% for cat,msg in get_flashed_messages(with_categories=true) %}<p>{{msg}}</p>{% endfor %}'+body+'</html>',**kw)
 def isbn_lookup(isbn):
-    digits=''.join(c for c in isbn.upper() if c.isdigit() or c=='X')
+    """Fetch edition-specific metadata; never guess a match from title alone."""
+    digits=''.join(ch for ch in isbn.upper() if ch.isdigit() or ch=='X')
     if len(digits) not in (10,13): raise ValueError('ISBN ungültig')
     def get(path):
-        with urlopen(Request('https://openlibrary.org'+path,headers={'User-Agent':'LeihGut/1.0'}),timeout=5) as response: return json.load(response)
-    data=get('/isbn/'+digits+'.json')
-    authors=[]
-    for a in data.get('authors',[])[:5]:
-        k=a.get('key','')
-        if k.startswith('/authors/'): authors.append(get(k+'.json').get('name',''))
-    d=data.get('description','')
-    if isinstance(d,dict): d=d.get('value','')
-    covers=data.get('covers') or []
-    return dict(title=data.get('title',''),author=', '.join(authors),isbn=digits,description=d,cover_url=('https://covers.openlibrary.org/b/id/%s-M.jpg'%covers[0]) if covers else '')
+        with urlopen(Request('https://openlibrary.org'+path,
+                             headers={'User-Agent':'LeihGut/1.0 (library catalog)'}),
+                     timeout=5) as response:
+            return json.load(response)
+    data=get('/api/books?bibkeys=ISBN:'+digits+'&jscmd=data&format=json')
+    entry=data.get('ISBN:'+digits)
+    if not entry: raise ValueError('Keine Informationen zu dieser ISBN gefunden')
+    authors=', '.join(a.get('name','') for a in entry.get('authors',[])[:5])
+    description=entry.get('excerpts') or []
+    desc=description[0].get('text','') if description else ''
+    if isinstance(desc,dict): desc=desc.get('value','')
+    cover=entry.get('cover') or {}
+    return dict(title=entry.get('title',''),author=authors,isbn=digits,
+                description=desc,cover_url=cover.get('medium',''),
+                publisher=', '.join(x.get('name','') for x in entry.get('publishers',[])[:3]),
+                published=entry.get('publish_date',''),
+                pages=entry.get('number_of_pages'))
+
+
 @bp.get('/')
 def index():
     books=db().execute('SELECT b.*,COUNT(c.id) copies FROM books b LEFT JOIN book_copies c ON b.id=c.book_id GROUP BY b.id ORDER BY b.title').fetchall()
