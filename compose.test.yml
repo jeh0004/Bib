@@ -1,5 +1,4 @@
-# Isolated test instance. Never use the production database volume.
-# Start only after CI checks and with a dedicated test directory.
+# Isolated sandbox; NEVER mount production database or uploads.
 services:
   web:
     build: .
@@ -13,4 +12,3 @@ services:
     restart: "no"
 volumes:
   phase3_test_data:
-    name: leihgut_phase3_test_data
