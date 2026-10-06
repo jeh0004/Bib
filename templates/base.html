@@ -64,6 +64,9 @@
           <a class="nav-link {% if request.endpoint == 'my_loans' %}active{% endif %}"
              href="{{ url_for('my_loans') }}"><i class="bi bi-bookmark-check"></i> {{ t.nav_my_books }}</a>
         </li>
+        {% if session.role == 'librarian' %}
+        <li class="nav-item"><a class="nav-link" href="{{url_for('admin_loans')}}"><i class="bi bi-arrow-left-right"></i> Bibliothek · Ausleihen</a></li>
+        {% endif %}
         {% if session.role == 'admin' %}
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle {% if request.endpoint and request.endpoint.startswith('admin') %}active{% endif %}"
@@ -92,7 +95,7 @@
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
             <i class="bi bi-person-circle"></i> {{ session.full_name }}
-            {% if session.role == 'admin' %}<span class="badge bg-warning text-dark ms-1">Admin</span>{% endif %}
+            {% if session.role == 'admin' %}<span class="badge bg-warning text-dark ms-1">Admin</span>{% elif session.role == 'librarian' %}<span class="badge bg-primary ms-1">Bibliothekar</span>{% endif %}
           </a>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="{{ url_for('my_password') }}"><i class="bi bi-key"></i> {{ t.nav_change_password }}</a></li>
