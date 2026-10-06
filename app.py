@@ -878,8 +878,17 @@ def admin_loans():
             ORDER BY l.reserved_at DESC
             LIMIT 100
         """).fetchall()
+    reminders = db.execute("""
+        SELECT l.id, b.title, u.full_name, u.email, l.due_date
+        FROM loans l JOIN books b ON b.id=l.book_id
+        JOIN users u ON u.id=l.user_id
+        WHERE l.status='borrowed'
+          AND l.due_date IS NOT NULL
+          AND l.due_date <= date('now', '+3 days')
+        ORDER BY l.due_date, l.id
+    """).fetchall()
     now = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    return render_template('admin/loans.html', loans=loans, status_filter=status_filter, now=now)
+    return render_template('admin/loans.html', loans=loans, status_filter=status_filter, now=now, reminders=reminders)
 
 
 @app.route('/admin/loans/<int:loan_id>/confirm', methods=['POST'])
