@@ -53,11 +53,51 @@ def renew(conn,loan_id):
 @bp.get('/')
 def index():
     conn=db()
-    rows=conn.execute("""SELECT l.id,l.status,l.due_date,l.renewal_count,b.title,u.full_name,c.inventory_code FROM loans l JOIN books b ON b.id=l.book_id JOIN users u ON u.id=l.user_id LEFT JOIN book_copies c ON c.id=l.copy_id WHERE l.status IN ('borrowed','reserved') ORDER BY l.due_date,l.id""").fetchall()
-    users=conn.execute('SELECT id,full_name FROM users WHERE is_active=1 ORDER BY full_name').fetchall()
+    rows=conn.execute("""SELECT l.id,l.status,l.due_date,l.renewal_count,l.renewal_requested_at,b.title,u.full_name,c.inventory_code FROM loans l JOIN books b ON b.id=l.book_id JOIN users u ON u.id=l.user_id LEFT JOIN book_copies c ON c.id=l.copy_id WHERE l.status IN ('borrowed','reserved') ORDER BY l.due_date,l.id""").fetchall()
+    users=conn.execute("SELECT id,full_name FROM users WHERE is_active=1 AND role='user' ORDER BY full_name").fetchall()
     copies=conn.execute('SELECT c.id,c.inventory_code,b.title FROM book_copies c JOIN books b ON b.id=c.book_id WHERE c.is_active=1 ORDER BY b.title,c.copy_number').fetchall()
     p=conn.execute('SELECT * FROM loan_policy WHERE id=1').fetchone()
-    return render_template_string('''<!doctype html><html lang="de"><meta charset="utf-8"><title>LeihGut Ausleihe</title><a href="/admin/">Admin</a> | <a href="/admin/catalog-extra/">Katalog</a><h1>Exemplar-Ausleihe</h1>{% for cat,msg in get_flashed_messages(with_categories=true) %}<p>{{msg}}</p>{% endfor %}<form method="post" action="{{url_for('loans_extra.settings')}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}">Leihfrist <input type="number" name="days" min="1" max="365" value="{{p.loan_days}}">Verlängerungen <input type="number" name="max" min="0" max="20" value="{{p.max_renewals}}"><button>Regeln speichern</button></form><form method="post" action="{{url_for('loans_extra.borrow')}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><select name="copy_id">{% for c in copies %}<option value="{{c.id}}">{{c.title}} – {{c.inventory_code}}</option>{% endfor %}</select><select name="user_id">{% for u in users %}<option value="{{u.id}}">{{u.full_name}}</option>{% endfor %}</select><button>Ausleihen</button></form><h2>Aktive Vorgänge</h2>{% for l in rows %}<p>{{l.title}} – {{l.full_name}} – {{l.inventory_code or 'Altbestand'}} – {{l.status}} – {{l.due_date or 'ohne Frist'}} {% if l.status=='borrowed' %}<form method="post" action="{{url_for('loans_extra.action',loan_id=l.id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button name="action" value="renew">Verlängern</button><button name="action" value="return">Rückgabe</button></form>{% endif %}</p>{% endfor %}''',rows=rows,users=users,copies=copies,p=p)
+    is_admin=conn.execute('SELECT role FROM users WHERE id=?',(session['user_id'],)).fetchone()[0]=='admin'
+    return render_template_string("""{% extends 'base.html' %}
+{% block title %}Bibliothek – Ausleihe{% endblock %}
+{% block content %}
+<a href="{{url_for('admin_loans')}}" class="text-decoration-none">← Zur Übersicht der Ausleihen</a>
+<h1 class="h3 mt-3 mb-2">Exemplar ausgeben</h1>
+<p class="text-muted">Für nicht reservierte Bücher ein freies Exemplar auswählen und dem Mitglied aushändigen. Bestehende Reservierungen bitte in der <a href="{{url_for('admin_loans',status='reserved')}}">Reservierungsliste</a> bestätigen.</p>
+<div class="card border-0 shadow-sm mb-4"><div class="card-body">
+<form method="post" action="{{url_for('loans_extra.borrow')}}">
+<input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
+<div class="mb-3"><label class="form-label">Exemplar</label><select class="form-select" name="copy_id" required>
+{% for c in copies %}<option value="{{c.id}}">{{c.title}} – {{c.inventory_code}}</option>{% endfor %}</select></div>
+<div class="mb-3"><label class="form-label">Mitglied</label><select class="form-select" name="user_id" required>
+{% for u in users %}<option value="{{u.id}}">{{u.full_name}}</option>{% endfor %}</select></div>
+<button class="btn btn-primary">Ausgabe verbuchen</button>
+</form></div></div>
+{% if is_admin %}
+<details class="border rounded p-3 mb-4"><summary>Leihregeln (nur Administrator)</summary>
+<form method="post" class="mt-3" action="{{url_for('loans_extra.settings')}}">
+<input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
+<label class="form-label">Leihfrist in Tagen<input class="form-control" type="number" name="days" min="1" max="365" value="{{p.loan_days}}"></label>
+<label class="form-label ms-2">Max. Verlängerungen<input class="form-control" type="number" name="max" min="0" max="20" value="{{p.max_renewals}}"></label>
+<button class="btn btn-outline-secondary d-block">Regeln speichern</button></form></details>
+{% endif %}
+<h2 class="h5">Aktive Vorgänge</h2>
+{% if not rows %}<p class="text-muted">Keine aktiven Vorgänge.</p>{% endif %}
+<div class="list-group">
+{% for l in rows %}
+<div class="list-group-item">
+<strong>{{l.title}}</strong><span class="text-muted"> – {{l.full_name}}</span>
+<div class="small text-muted">{{l.inventory_code or 'Exemplar noch nicht zugeordnet'}} · {{'Reserviert' if l.status=='reserved' else 'Ausgeliehen'}} · Rückgabe {{l.due_date or 'offen'}}</div>
+{% if l.renewal_requested_at %}<span class="badge bg-warning text-dark">Verlängerung beantragt</span>{% endif %}
+{% if l.status=='borrowed' %}
+<form method="post" class="mt-2 d-flex gap-2 flex-wrap" action="{{url_for('loans_extra.action',loan_id=l.id)}}">
+<input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
+{% if l.renewal_requested_at %}<button class="btn btn-sm btn-outline-primary" name="action" value="renew">Verlängerung genehmigen</button>
+<button class="btn btn-sm btn-outline-secondary" name="action" value="decline">Ablehnen</button>{% endif %}
+<button class="btn btn-sm btn-outline-success" name="action" value="return" onclick="return confirm('Rückgabe tatsächlich entgegengenommen?')">Rücknahme buchen</button></form>
+{% elif l.status=='reserved' %}<a class="btn btn-sm btn-outline-primary mt-2" href="{{url_for('admin_loans',status='reserved')}}">Reservierung bearbeiten</a>{% endif %}
+</div>{% endfor %}</div>
+{% endblock %}""",rows=rows,users=users,copies=copies,p=p,is_admin=is_admin)
 @bp.post('/settings')
 def settings():
     admin_only()
