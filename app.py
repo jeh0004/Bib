@@ -662,8 +662,16 @@ def book_detail(book_id):
         SELECT * FROM loans
         WHERE book_id = ? AND user_id = ? AND status IN ('reserved','borrowed')
     """, (book_id, session['user_id'])).fetchone()
+    queue = db.execute(
+        "SELECT user_id FROM loan_waitlist WHERE book_id=? ORDER BY requested_at,id",
+        (book_id,)
+    ).fetchall()
+    waitlist_position = next((i+1 for i, entry in enumerate(queue)
+                              if entry['user_id'] == session['user_id']), None)
+    can_reserve = available > 0 and (not queue or queue[0]['user_id'] == session['user_id'])
     return render_template('book_detail.html', book=book, available=available,
-                           loans=loans, my_loan=my_loan)
+                           loans=loans, my_loan=my_loan, waitlist_position=waitlist_position,
+                           waitlist_count=len(queue), can_reserve=can_reserve)
 
 
 @app.route('/book/<int:book_id>/reserve', methods=['POST'])
