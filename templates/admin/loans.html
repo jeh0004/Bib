@@ -68,6 +68,7 @@
               <i class="bi bi-check-lg"></i> {{ t.btn_confirm }}
             </button>
             <form method="post" action="{{ url_for('admin_cancel_loan', loan_id=loan.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
               <button type="submit" class="btn btn-sm btn-outline-danger"
                       onclick="return confirm('{{ t.cancel_confirm }}')">
                 <i class="bi bi-x-lg"></i>
@@ -88,6 +89,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
               </div>
               <div class="modal-body">
+                <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
                 <p class="small"><strong>{{ loan.title }}</strong><br>{{ loan.full_name }}</p>
                 <div class="mb-2">
                   <label class="form-label small">{{ t.field_due_date }}</label>
