@@ -185,6 +185,7 @@ def init_db():
         migrate_catalog(db)
         migrate_loans(db)
         _add_column_if_missing(db, 'users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0')
+        _add_column_if_missing(db, 'loans', 'renewal_requested_at', 'TEXT')
         # Ensure settings singleton row exists
         db.execute(
             "INSERT OR IGNORE INTO settings (id, club_name, primary_color) VALUES (1, 'Mein Verein', '#0d6efd')"
@@ -341,6 +342,16 @@ def login_required(f):
         if session.get('must_change_password') and request.endpoint != 'change_password':
             flash_msg('flash_must_change_pw', 'warning')
             return redirect(url_for('change_password'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def librarian_required(f):
+    @wraps(f)
+    @login_required
+    def decorated(*args, **kwargs):
+        if session.get('role') not in ('admin', 'librarian'):
+            abort(403)
         return f(*args, **kwargs)
     return decorated
 
@@ -738,6 +749,8 @@ def join_waitlist(book_id):
 @app.route('/book/<int:book_id>/return', methods=['POST'])
 @login_required
 def return_book(book_id):
+    # Physical returns must be recorded by library staff, never by members.
+    abort(403)
     db = get_db()
     loan = db.execute("""
         SELECT * FROM loans
@@ -776,6 +789,23 @@ def my_loans():
         LIMIT 20
     """, (session['user_id'],)).fetchall()
     return render_template('user/my_loans.html', active=active, history=history)
+
+
+@app.route('/my-loans/<int:loan_id>/request-renewal', methods=['POST'])
+@login_required
+def request_renewal(loan_id):
+    db = get_db()
+    with db:
+        changed = db.execute("""
+            UPDATE loans SET renewal_requested_at=datetime('now')
+            WHERE id=? AND user_id=? AND status='borrowed'
+              AND renewal_requested_at IS NULL
+        """, (loan_id, session['user_id']))
+    if changed.rowcount:
+        flash('Verlängerung beantragt. Die Bibliothek prüft deinen Antrag.', 'success')
+    else:
+        flash('Für diese Ausleihe ist kein neuer Antrag möglich.', 'warning')
+    return redirect(url_for('my_loans'))
 
 # ---------------------------------------------------------------------------
 # Admin: dashboard
@@ -947,8 +977,7 @@ def admin_statistics():
 
 
 @app.route('/admin/loans')
-@login_required
-@admin_required
+@librarian_required
 def admin_loans():
     db = get_db()
     status_filter = request.args.get('status', '')
@@ -984,8 +1013,7 @@ def admin_loans():
 
 
 @app.route('/admin/loans/<int:loan_id>/confirm', methods=['POST'])
-@login_required
-@admin_required
+@librarian_required
 def admin_confirm_loan(loan_id):
     db = get_db()
     due_date = request.form.get('due_date') or None
@@ -1002,8 +1030,7 @@ def admin_confirm_loan(loan_id):
 
 
 @app.route('/admin/loans/<int:loan_id>/cancel', methods=['POST'])
-@login_required
-@admin_required
+@librarian_required
 def admin_cancel_loan(loan_id):
     db = get_db()
     db.execute("DELETE FROM loans WHERE id = ? AND status = 'reserved'", (loan_id,))
@@ -1043,7 +1070,7 @@ def admin_add_user():
     if not username or not full_name:
         flash_msg('flash_user_missing_fields', 'danger')
         return redirect(url_for('admin_users'))
-    if role not in ('admin', 'user'):
+    if role not in ('admin', 'user', 'librarian'):
         role = 'user'
     initial_pw = generate_initial_password()
     try:
@@ -1095,7 +1122,7 @@ def admin_edit_user(user_id):
         email = request.form.get('email', '').strip()
         role = request.form.get('role', 'user')
         is_active = 1 if request.form.get('is_active') else 0
-        if role not in ('admin', 'user'):
+        if role not in ('admin', 'user', 'librarian'):
             role = 'user'
         if user_id == session.get('user_id') and (role != 'admin' or not is_active):
             flash('Du kannst deine eigene Administratorrolle nicht entfernen oder dich selbst sperren.', 'danger')
