@@ -25,6 +25,7 @@
         <label class="form-label">{{ t.field_role }}</label>
         <select name="role" class="form-select">
           <option value="user" {{ 'selected' if user.role == 'user' }}>{{ t.role_member }}</option>
+          <option value="librarian" {{ 'selected' if user.role == 'librarian' }}>Bibliothekar</option>
           <option value="admin" {{ 'selected' if user.role == 'admin' }}>{{ t.role_admin }}</option>
         </select>
       </div>
