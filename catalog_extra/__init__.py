@@ -33,7 +33,7 @@ def isbn_lookup(isbn):
     desc=description[0].get('text','') if description else ''
     if isinstance(desc,dict): desc=desc.get('value','')
     cover=entry.get('cover') or {}
-    cover_url=cover.get('large') or cover.get('medium') or ('https://covers.openlibrary.org/b/isbn/'+digits+'-M.jpg?default=false')
+    cover_url=cover.get('large') or cover.get('medium') or ''
     return dict(title=entry.get('title',''),author=authors,isbn=digits,
                 description=desc,cover_url=cover_url,
                 publisher=', '.join(x.get('name','') for x in entry.get('publishers',[])[:3]),
