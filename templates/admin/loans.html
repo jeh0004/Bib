@@ -25,6 +25,7 @@
         <th>{{ t.col_reserved_at }}</th>
         <th>{{ t.col_borrowed_at }}</th>
         <th>{{ t.col_due }}</th>
+        <th>Verlängerungen</th>
         <th></th>
       </tr>
     </thead>
@@ -54,6 +55,7 @@
             </span>
           {% else %}–{% endif %}
         </td>
+        <td>{{ loan.renewal_count or 0 }}</td>
         <td class="text-end">
           {% if loan.status == 'reserved' %}
             <button class="btn btn-sm btn-success" data-bs-toggle="modal"
