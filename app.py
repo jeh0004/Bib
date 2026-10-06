@@ -1017,15 +1017,45 @@ def admin_loans():
 def admin_confirm_loan(loan_id):
     db = get_db()
     due_date = request.form.get('due_date') or None
-    if not due_date:
+    if due_date:
+        try:
+            if datetime.strptime(due_date, '%Y-%m-%d').date() < datetime.now(timezone.utc).date():
+                raise ValueError()
+        except ValueError:
+            flash('Bitte ein gültiges Rückgabedatum wählen (heute oder später).', 'danger')
+            return redirect(url_for('admin_loans', status='reserved'))
+    else:
         days = db.execute("SELECT loan_days FROM loan_policy WHERE id=1").fetchone()[0]
         due_date = (datetime.now(timezone.utc) + timedelta(days=days)).date().isoformat()
-    with db:
-        db.execute("""
-            UPDATE loans SET status = 'borrowed', borrowed_at = datetime('now'), due_date = ?
-            WHERE id = ? AND status = 'reserved'
-        """, (due_date, loan_id))
-    flash_msg('flash_loan_confirmed', 'success')
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        loan = db.execute("SELECT book_id,copy_id FROM loans WHERE id=? AND status='reserved'", (loan_id,)).fetchone()
+        if not loan:
+            raise ValueError('Reservierung nicht mehr vorhanden')
+        # Only library staff may assign the physical copy during the handover.
+        copy_id = loan['copy_id']
+        if copy_id is None:
+            copy = db.execute("""
+                SELECT id FROM book_copies
+                WHERE book_id=? AND is_active=1
+                  AND NOT EXISTS (SELECT 1 FROM loans l WHERE l.copy_id=book_copies.id
+                    AND l.id<>? AND l.status IN ('reserved','borrowed'))
+                ORDER BY copy_number LIMIT 1
+            """, (loan['book_id'], loan_id)).fetchone()
+            if not copy:
+                raise ValueError('Kein freies Exemplar für die Ausgabe gefunden')
+            copy_id = copy['id']
+        changed = db.execute("""
+            UPDATE loans SET status='borrowed', copy_id=?, borrowed_at=datetime('now'),
+                due_date=? WHERE id=? AND status='reserved'
+        """, (copy_id, due_date, loan_id))
+        if changed.rowcount != 1:
+            raise ValueError('Reservierung konnte nicht ausgegeben werden')
+        db.commit()
+        flash_msg('flash_loan_confirmed', 'success')
+    except (ValueError, sqlite3.IntegrityError) as error:
+        db.rollback()
+        flash(str(error), 'danger')
     return redirect(url_for('admin_loans', status='reserved'))
 
 
