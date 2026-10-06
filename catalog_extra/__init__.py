@@ -99,6 +99,56 @@ def safe_enrichment(book, meta):
             if not book[field] and meta.get(field)}
 
 
+def cover_suggestions(book):
+    """Suggestions only: title/author search is not proof of the same edition."""
+    from urllib.parse import urlencode
+    from urllib.error import HTTPError, URLError
+    title, author=book['title'] or '',book['author'] or ''
+    if not title.strip() or not author.strip():
+        return []
+    suggestions=[]
+    def accept(source, candidate_title, candidate_authors, cover, isbn=''):
+        if not cover or not matching_title(title,candidate_title):
+            return
+        if not any(matching_title(a, candidate_authors) for a in author.split(',') if a.strip()):
+            return
+        if not cover.startswith('https://'):
+            return
+        if any(x['cover_url']==cover for x in suggestions):
+            return
+        suggestions.append(dict(source=source,title=candidate_title,authors=candidate_authors,
+                                cover_url=cover,isbn=isbn))
+    def fetch(url):
+        with urlopen(Request(url,headers={'User-Agent':'LeihGut/1.0 (library catalog)'}),timeout=6) as response:
+            return json.load(response)
+    try:
+        result=fetch('https://openlibrary.org/search.json?'+urlencode({
+            'title':title,'author':author,'fields':'title,author_name,cover_i,isbn',
+            'limit':8}))
+        for doc in result.get('docs',[]):
+            cover=doc.get('cover_i')
+            if cover:
+                accept('Open Library',doc.get('title',''),
+                       ', '.join(doc.get('author_name') or []),
+                       f'https://covers.openlibrary.org/b/id/{int(cover)}-L.jpg',
+                       ', '.join((doc.get('isbn') or [])[:2]))
+    except (HTTPError,URLError,TimeoutError,ValueError,OSError,TypeError):
+        pass
+    try:
+        result=fetch('https://www.googleapis.com/books/v1/volumes?'+urlencode({
+            'q':f'intitle:{title} inauthor:{author}','maxResults':8}))
+        for volume in result.get('items',[]):
+            info=volume.get('volumeInfo') or {}
+            cover=(info.get('imageLinks') or {}).get('thumbnail','')
+            if cover.startswith('http://'): cover='https://'+cover[7:]
+            accept('Google Books',info.get('title',''),
+                   ', '.join(info.get('authors') or []),cover,
+                   ', '.join(i.get('identifier','') for i in info.get('industryIdentifiers') or []))
+    except (HTTPError,URLError,TimeoutError,ValueError,OSError,TypeError):
+        pass
+    return suggestions[:8]
+
+
 @bp.get('/')
 def index():
     books=db().execute('SELECT b.*,COUNT(c.id) copies FROM books b LEFT JOIN book_copies c ON b.id=c.book_id GROUP BY b.id ORDER BY b.title').fetchall()
@@ -205,6 +255,13 @@ def detail(book_id):
                                      list(updates.values())+[book_id])
                     else:
                         flash('Keine fehlenden Informationen gefunden.','info')
+                elif action=='choose_cover':
+                    # Revalidate against fresh search results; never trust submitted URLs.
+                    selected=request.form.get('cover_url','')
+                    matches=cover_suggestions(book)
+                    if not any(x['cover_url']==selected for x in matches):
+                        raise ValueError('Cover-Vorschlag nicht mehr verfügbar')
+                    conn.execute('UPDATE books SET cover_url=? WHERE id=?',(selected,book_id))
                 elif action=='remove_cover':
                     conn.execute('UPDATE books SET cover_url=NULL WHERE id=?',(book_id,))
                 elif action=='metadata':
@@ -213,6 +270,7 @@ def detail(book_id):
             flash('Gespeichert.','success')
         except (ValueError,sqlite3.IntegrityError) as e: flash(str(e),'danger')
         return redirect(url_for('.detail',book_id=book_id))
+    suggestions=cover_suggestions(book) if request.args.get('cover_search')=='1' and not book['cover_url'] else []
     copies=conn.execute('SELECT * FROM book_copies WHERE book_id=? ORDER BY copy_number',(book_id,)).fetchall()
     terms={}
     for table,link,fk in [('tags','book_tags','tag_id'),('genres','book_genres','genre_id')]:
@@ -233,6 +291,16 @@ def detail(book_id):
     <form method="post" class="mb-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="{{t}}"><label class="form-label">{{label}} (durch Komma getrennt)</label><div class="input-group"><input class="form-control" name="names" value="{{terms[t]}}"><button class="btn btn-outline-secondary">Speichern</button></div></form>{% endfor %}
     </div><div class="col-lg-5"><h2 class="h5">Cover und Exemplare</h2>
     {% if book.cover_url %}<img src="{{book.cover_url}}" alt="Cover" class="img-thumbnail mb-3" style="max-height:190px"><form method="post" class="mb-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="remove_cover"><button class="btn btn-outline-danger btn-sm">Falsches Cover entfernen</button></form>{% endif %}
+    {% if not book.cover_url %}<a class="btn btn-outline-primary btn-sm mb-3" href="{{url_for('catalog_extra.detail',book_id=book.id,cover_search=1)}}">Cover nach Titel und Autor suchen</a>{% endif %}
+    {% if request.args.get('cover_search')=='1' and not book.cover_url %}
+      <p class="small text-muted">Vorschläge sind nicht automatisch geprüft. Bitte Titel, Autor und Ausgabe mit dem echten Buch vergleichen.</p>
+      {% if not suggestions %}<p>Keine passenden Cover-Vorschläge gefunden.</p>{% endif %}
+      {% for item in suggestions %}
+        <div class="border rounded p-2 mb-2"><img src="{{item.cover_url}}" alt="Vorgeschlagenes Cover" style="max-height:110px;max-width:85px;object-fit:contain">
+        <div class="small"><strong>{{item.title}}</strong><div>{{item.authors}}</div><div>{{item.source}} · ISBN {{item.isbn or 'unbekannt'}}</div></div>
+        <form method="post"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="choose_cover"><input type="hidden" name="cover_url" value="{{item.cover_url}}"><button class="btn btn-outline-primary btn-sm mt-2">Dieses Cover übernehmen</button></form></div>
+      {% endfor %}
+    {% endif %}
     <p class="small text-muted">Jedes physische Exemplar kann eine eigene Inventarnummer und einen Standort haben.</p>
     {% for c in copies %}<details class="border rounded p-3 mb-2"><summary class="fw-semibold">Exemplar {{c.copy_number}} · {{c.inventory_code}}</summary>
     <form method="post" class="mt-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="copy"><input type="hidden" name="copy_id" value="{{c.id}}">
@@ -243,4 +311,4 @@ def detail(book_id):
     <form method="post" class="mt-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="add_copy">
     {% for f,label in [("inventory_code","Inventarnummer (optional)"),("barcode","Barcode"),("location","Standort"),("shelf","Regal")] %}<label class="form-label d-block">{{label}}<input class="form-control" name="{{f}}"></label>{% endfor %}
     <label class="form-label">Zustand<select class="form-select" name="condition"><option value="good">Gut</option><option value="new">Neu</option><option value="worn">Gebraucht</option><option value="damaged">Beschädigt</option></select></label>
-    <button class="btn btn-primary d-block">Exemplar hinzufügen</button></form></details></div></div>''',book=book,copies=copies,terms=terms)
+    <button class="btn btn-primary d-block">Exemplar hinzufügen</button></form></details></div></div>''',book=book,copies=copies,terms=terms,suggestions=suggestions)
