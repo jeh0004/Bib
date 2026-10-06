@@ -1,5 +1,5 @@
 
-import json, secrets, sqlite3
+import json, secrets, sqlite3, re, unicodedata
 from urllib.request import Request, urlopen
 from flask import Blueprint, abort, flash, redirect, render_template_string, request, session, url_for
 bp=Blueprint('catalog_extra',__name__,url_prefix='/admin/catalog-extra')
@@ -80,6 +80,25 @@ def isbn_lookup(isbn):
     return data
 
 
+def matching_title(local, remote):
+    """Reject covers for editions whose titles refer to different works."""
+    def tokens(value):
+        value=unicodedata.normalize('NFKD',value.casefold())
+        value=''.join(c for c in value if not unicodedata.combining(c))
+        return set(re.findall(r'[a-z0-9]{3,}',value))-{'und','der','die','das','ein','eine','von','mit','fur','fuer','auflage','band','alpin'}
+    a,b=tokens(local or ''),tokens(remote or '')
+    if not a or not b:
+        return False
+    return len(a & b)/min(len(a),len(b)) >= 0.65
+
+def safe_enrichment(book, meta):
+    """Never copy metadata or covers from a clearly different work."""
+    if not matching_title(book['title'],meta.get('title','')):
+        return {}
+    return {field:meta[field] for field in ('description','cover_url','publisher','published','pages')
+            if not book[field] and meta.get(field)}
+
+
 @bp.get('/')
 def index():
     books=db().execute('SELECT b.*,COUNT(c.id) copies FROM books b LEFT JOIN book_copies c ON b.id=c.book_id GROUP BY b.id ORDER BY b.title').fetchall()
@@ -101,8 +120,7 @@ def enrich_missing():
     for book in rows:
         try:
             meta=isbn_lookup(book['isbn'])
-            updates={field:meta[field] for field in ('title','author','description','cover_url','publisher','published','pages')
-                     if not book[field] and meta.get(field)}
+            updates=safe_enrichment(book,meta)
             if updates:
                 with conn:
                     conn.execute('UPDATE books SET '+','.join(f'{field}=?' for field in updates)+' WHERE id=?',
@@ -181,15 +199,14 @@ def detail(book_id):
                         conn.execute(f'INSERT INTO {link}(book_id,{fk}) VALUES(?,?)',(book_id,id))
                 elif action=='enrich':
                     if not book['isbn']: raise ValueError('Bitte zuerst eine ISBN hinterlegen')
-                    updates={}
-                    for field in ('title','author','description','cover_url','publisher','published','pages'):
-                        if not book[field] and meta.get(field):
-                            updates[field]=meta[field]
+                    updates=safe_enrichment(book,meta)
                     if updates:
                         conn.execute('UPDATE books SET '+','.join(f'{key}=?' for key in updates)+' WHERE id=?',
                                      list(updates.values())+[book_id])
                     else:
                         flash('Keine fehlenden Informationen gefunden.','info')
+                elif action=='remove_cover':
+                    conn.execute('UPDATE books SET cover_url=NULL WHERE id=?',(book_id,))
                 elif action=='metadata':
                     conn.execute('UPDATE books SET title=?,author=?,isbn=?,category=?,description=?,cover_url=? WHERE id=?',tuple(request.form.get(x,'') for x in ('title','author','isbn','category','description','cover_url'))+(book_id,))
                 else: abort(400)
@@ -215,7 +232,7 @@ def detail(book_id):
     {% for t,label in [("genres","Genres"),("tags","Schlagwörter")] %}
     <form method="post" class="mb-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="{{t}}"><label class="form-label">{{label}} (durch Komma getrennt)</label><div class="input-group"><input class="form-control" name="names" value="{{terms[t]}}"><button class="btn btn-outline-secondary">Speichern</button></div></form>{% endfor %}
     </div><div class="col-lg-5"><h2 class="h5">Cover und Exemplare</h2>
-    {% if book.cover_url %}<img src="{{book.cover_url}}" alt="Cover" class="img-thumbnail mb-3" style="max-height:190px">{% endif %}
+    {% if book.cover_url %}<img src="{{book.cover_url}}" alt="Cover" class="img-thumbnail mb-3" style="max-height:190px"><form method="post" class="mb-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="remove_cover"><button class="btn btn-outline-danger btn-sm">Falsches Cover entfernen</button></form>{% endif %}
     <p class="small text-muted">Jedes physische Exemplar kann eine eigene Inventarnummer und einen Standort haben.</p>
     {% for c in copies %}<details class="border rounded p-3 mb-2"><summary class="fw-semibold">Exemplar {{c.copy_number}} · {{c.inventory_code}}</summary>
     <form method="post" class="mt-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="copy"><input type="hidden" name="copy_id" value="{{c.id}}">
