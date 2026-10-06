@@ -8,6 +8,7 @@ class RegistrationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory()
         os.environ['DATABASE']=os.path.join(cls.tmp.name,'db.sqlite')
+        os.environ['UPLOAD_DIR']=os.path.join(cls.tmp.name,'uploads')
         from app import app, init_db
         cls.app=app
         init_db()
