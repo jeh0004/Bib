@@ -17,28 +17,67 @@ def view(body,**kw):
     {% endblock %}"""
     return render_template_string(page,**kw)
 def isbn_lookup(isbn):
-    """Fetch edition-specific metadata; never guess a match from title alone."""
+    """Find edition metadata by ISBN. Preserve source accuracy and missing values."""
+    from urllib.parse import urlencode
+    from urllib.error import HTTPError, URLError
     digits=''.join(ch for ch in isbn.upper() if ch.isdigit() or ch=='X')
-    if len(digits) not in (10,13): raise ValueError('ISBN ungültig')
-    def get(path):
-        with urlopen(Request('https://openlibrary.org'+path,
-                             headers={'User-Agent':'LeihGut/1.0 (library catalog)'}),
-                     timeout=5) as response:
+    if len(digits) not in (10,13):
+        raise ValueError('ISBN ungültig')
+    def fetch(url):
+        with urlopen(Request(url, headers={'User-Agent':'LeihGut/1.0 (library catalog)'}),
+                     timeout=6) as response:
             return json.load(response)
-    data=get('/api/books?bibkeys=ISBN:'+digits+'&jscmd=data&format=json')
-    entry=data.get('ISBN:'+digits)
-    if not entry: raise ValueError('Keine Informationen zu dieser ISBN gefunden')
-    authors=', '.join(a.get('name','') for a in entry.get('authors',[])[:5])
-    description=entry.get('excerpts') or []
-    desc=description[0].get('text','') if description else ''
-    if isinstance(desc,dict): desc=desc.get('value','')
-    cover=entry.get('cover') or {}
-    cover_url=cover.get('large') or cover.get('medium') or ''
-    return dict(title=entry.get('title',''),author=authors,isbn=digits,
-                description=desc,cover_url=cover_url,
-                publisher=', '.join(x.get('name','') for x in entry.get('publishers',[])[:3]),
-                published=entry.get('publish_date',''),
-                pages=entry.get('number_of_pages'))
+    data={}
+    try:
+        result=fetch('https://openlibrary.org/api/books?'+urlencode(
+            {'bibkeys':'ISBN:'+digits,'jscmd':'data','format':'json'}))
+        entry=result.get('ISBN:'+digits) or {}
+        if entry:
+            cover=entry.get('cover') or {}
+            excerpts=entry.get('excerpts') or []
+            desc=excerpts[0].get('text','') if excerpts else ''
+            if isinstance(desc,dict): desc=desc.get('value','')
+            data=dict(title=entry.get('title',''),
+                      author=', '.join(a.get('name','') for a in entry.get('authors',[])[:5]),
+                      isbn=digits,description=desc,
+                      cover_url=cover.get('large') or cover.get('medium') or '',
+                      publisher=', '.join(x.get('name','') for x in entry.get('publishers',[])[:3]),
+                      published=entry.get('publish_date',''),
+                      pages=entry.get('number_of_pages'))
+    except (HTTPError,URLError,TimeoutError,ValueError, OSError):
+        pass
+    # Google Books can fill gaps for specialized titles not held by Open Library.
+    if not all(data.get(k) for k in ('title','author','cover_url','publisher','published','description')):
+        try:
+            result=fetch('https://www.googleapis.com/books/v1/volumes?'+urlencode(
+                {'q':'isbn:'+digits,'maxResults':5}))
+            for volume in result.get('items',[]):
+                info=volume.get('volumeInfo') or {}
+                identifiers=info.get('industryIdentifiers') or []
+                normalized={''.join(c for c in item.get('identifier','').upper()
+                                    if c.isdigit() or c=='X') for item in identifiers}
+                if digits not in normalized:
+                    continue
+                covers=info.get('imageLinks') or {}
+                cover=covers.get('thumbnail') or covers.get('smallThumbnail') or ''
+                if cover.startswith('http://'):
+                    cover='https://'+cover[7:]
+                supplement=dict(title=info.get('title',''),
+                    author=', '.join(info.get('authors') or []),
+                    description=info.get('description',''),
+                    cover_url=cover,
+                    publisher=info.get('publisher',''),
+                    published=info.get('publishedDate',''),
+                    pages=info.get('pageCount'))
+                for key,value in supplement.items():
+                    if not data.get(key) and value: data[key]=value
+                break
+        except (HTTPError,URLError,TimeoutError,ValueError,OSError):
+            pass
+    if not data.get('title'):
+        raise ValueError('Keine Informationen zu dieser ISBN gefunden')
+    data['isbn']=digits
+    return data
 
 
 @bp.get('/')
