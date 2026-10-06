@@ -32,8 +32,10 @@ app = Flask(__name__)
 
 from catalog_extra import bp as catalog_extra_bp
 from loans_extra import bp as loans_extra_bp
+from book_import import bp as book_import_bp
 app.register_blueprint(catalog_extra_bp)
 app.register_blueprint(loans_extra_bp)
+app.register_blueprint(book_import_bp)
 
 DATABASE = os.environ.get('DATABASE', '/data/vereinsbibliothek.db')
 
