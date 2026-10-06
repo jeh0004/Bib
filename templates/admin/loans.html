@@ -57,7 +57,12 @@
         </td>
         <td>{{ loan.renewal_count or 0 }}</td>
         <td class="text-end">
-          {% if loan.status == 'reserved' %}
+          {% if loan.status == 'borrowed' %}
+            <form method="post" action="{{ url_for('loans_extra.action', loan_id=loan.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+              <button name="action" value="renew" class="btn btn-sm btn-outline-primary">Verlängern</button>
+            </form>
+          {% elif loan.status == 'reserved' %}
             <button class="btn btn-sm btn-success" data-bs-toggle="modal"
                     data-bs-target="#confirmModal{{ loan.id }}">
               <i class="bi bi-check-lg"></i> {{ t.btn_confirm }}
