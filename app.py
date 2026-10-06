@@ -421,10 +421,18 @@ def create_reservation(db, book_id, user_id):
             raise ValueError('already_reserved')
         if get_available_copies(db, book_id) <= 0:
             raise ValueError('not_available')
+        first = db.execute(
+            "SELECT user_id FROM loan_waitlist WHERE book_id=? ORDER BY requested_at,id LIMIT 1",
+            (book_id,)
+        ).fetchone()
+        if first and first['user_id'] != user_id:
+            raise ValueError('waitlist_priority')
         db.execute(
             "INSERT INTO loans (book_id,user_id,status,reserved_at) VALUES (?,?,'reserved',datetime('now'))",
             (book_id, user_id)
         )
+        if first:
+            db.execute("DELETE FROM loan_waitlist WHERE book_id=? AND user_id=?", (book_id,user_id))
         db.commit()
     except Exception:
         db.rollback()
@@ -672,6 +680,28 @@ def reserve_book(book_id):
         return redirect(url_for('book_detail', book_id=book_id))
     flash_msg('flash_reserved_ok', 'success')
     return redirect(url_for('my_loans'))
+
+
+@app.route('/book/<int:book_id>/waitlist', methods=['POST'])
+@login_required
+def join_waitlist(book_id):
+    db = get_db()
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        if not db.execute("SELECT 1 FROM books WHERE id=?", (book_id,)).fetchone():
+            abort(404)
+        if db.execute("SELECT 1 FROM loans WHERE book_id=? AND user_id=? AND status IN ('reserved','borrowed')", (book_id,session['user_id'])).fetchone():
+            flash('Du hast dieses Buch bereits reserviert oder ausgeliehen.', 'warning')
+        elif get_available_copies(db,book_id)>0 and not db.execute("SELECT 1 FROM loan_waitlist WHERE book_id=?", (book_id,)).fetchone():
+            flash('Ein Exemplar ist verfügbar. Bitte reserviere es direkt.', 'info')
+        else:
+            db.execute("INSERT OR IGNORE INTO loan_waitlist(book_id,user_id) VALUES (?,?)",(book_id,session['user_id']))
+            flash('Du stehst auf der Warteliste.', 'success')
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return redirect(url_for('book_detail',book_id=book_id))
 
 
 @app.route('/book/<int:book_id>/return', methods=['POST'])
