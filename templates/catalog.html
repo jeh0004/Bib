@@ -16,38 +16,31 @@
 </form>
 
 {% if books %}
-<div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
-  {% for book in books %}
-  <div class="col">
-    <div class="card h-100 shadow-sm">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start">
-          <h5 class="card-title mb-1">
-            <a href="{{ url_for('book_detail', book_id=book.id) }}" class="text-decoration-none stretched-link">
-              {{ book.title }}
-            </a>
-          </h5>
-          {% if book.available > 0 %}
-            <span class="badge bg-success ms-2 flex-shrink-0">{{ t.catalog_available }}</span>
-          {% else %}
-            <span class="badge bg-danger ms-2 flex-shrink-0">{{ t.catalog_borrowed }}</span>
-          {% endif %}
-        </div>
-        <p class="text-muted small mb-1"><i class="bi bi-person"></i> {{ book.author }}</p>
-        {% if book.category %}
-          <span class="badge bg-secondary">{{ book.category }}</span>
-        {% endif %}
-        {% if book.description %}
-          <p class="card-text small mt-2 text-truncate-3">{{ book.description }}</p>
-        {% endif %}
-      </div>
-      <div class="card-footer text-muted small d-flex justify-content-between">
-        <span>{{ book.available }} / {{ book.total_copies }} {{ t.catalog_copies_of }}</span>
-        {% if book.isbn %}<span>ISBN {{ book.isbn }}</span>{% endif %}
-      </div>
+<div class="row row-cols-2 row-cols-md-3 row-cols-xl-4 g-3">
+{% for book in books %}
+  <div class="col"><a href="{{ url_for('book_detail', book_id=book.id) }}"
+    class="card h-100 shadow-sm text-decoration-none text-body">
+    {% if book.cover_url %}
+      <img src="{{ book.cover_url }}" class="card-img-top"
+           alt="Cover von {{ book.title }}" loading="lazy"
+           style="height:210px;object-fit:contain;padding:12px">
+    {% else %}
+      <div class="d-flex align-items-center justify-content-center bg-light text-muted"
+           style="height:210px"><i class="bi bi-book fs-1"></i></div>
+    {% endif %}
+    <div class="card-body py-2">
+      <div class="fw-semibold">{{ book.title }}</div>
+      <div class="small text-muted">{{ book.author }}</div>
     </div>
-  </div>
-  {% endfor %}
+    <div class="card-footer small">
+      {% if book.available > 0 %}
+        <span class="text-success">Verfügbar: {{ book.available }}</span>
+      {% else %}
+        <span class="text-danger">Derzeit nicht verfügbar</span>
+      {% endif %}
+    </div>
+  </a></div>
+{% endfor %}
 </div>
 {% else %}
 <div class="text-center text-muted py-5">
