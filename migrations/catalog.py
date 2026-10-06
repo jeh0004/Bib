@@ -15,6 +15,9 @@ def migrate(db: sqlite3.Connection):
         columns = {r[1] for r in db.execute('PRAGMA table_info(books)')}
         if 'cover_url' not in columns:
             db.execute('ALTER TABLE books ADD COLUMN cover_url TEXT')
+        for column, definition in [('publisher','TEXT'),('published','TEXT'),('pages','INTEGER')]:
+            if column not in columns:
+                db.execute(f'ALTER TABLE books ADD COLUMN {column} {definition}')
         loan_columns = {r[1] for r in db.execute('PRAGMA table_info(loans)')}
         if 'copy_id' not in loan_columns:
             db.execute('ALTER TABLE loans ADD COLUMN copy_id INTEGER REFERENCES book_copies(id)')
