@@ -26,7 +26,35 @@ def isbn_lookup(isbn):
 @bp.get('/')
 def index():
     books=db().execute('SELECT b.*,COUNT(c.id) copies FROM books b LEFT JOIN book_copies c ON b.id=c.book_id GROUP BY b.id ORDER BY b.title').fetchall()
-    return view('<h1>Medienkatalog</h1><p><a href="{{url_for("catalog_extra.add")}}">Buch anlegen</a></p>{% for b in books %}<p>{% if b.cover_url %}<img width="45" src="{{b.cover_url}}" alt="Cover">{% endif %} <a href="{{url_for("catalog_extra.detail",book_id=b.id)}}">{{b.title}}</a> – {{b.author}} ({{b.copies}} Exemplare)</p>{% endfor %}',books=books)
+    return view('<h1>Medienkatalog</h1><p><a href="{{url_for("catalog_extra.add")}}">Buch anlegen</a> | <a href="{{url_for("catalog_extra.inventory")}}">Inventarliste</a></p>{% for b in books %}<p>{% if b.cover_url %}<img width="45" src="{{b.cover_url}}" alt="Cover">{% endif %} <a href="{{url_for("catalog_extra.detail",book_id=b.id)}}">{{b.title}}</a> – {{b.author}} ({{b.copies}} Exemplare)</p>{% endfor %}',books=books)
+@bp.get('/inventory')
+def inventory():
+    conn=db()
+    q=request.args.get('q','').strip()
+    term='%'+q+'%'
+    rows=conn.execute("""
+        SELECT c.id,c.inventory_code,c.barcode,c.location,c.shelf,c.condition,
+               c.is_active,b.title,b.author,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM loans l WHERE l.copy_id=c.id
+                   AND l.status IN ('reserved','borrowed')
+               ) THEN 'vergeben' ELSE 'frei' END AS state
+        FROM book_copies c JOIN books b ON b.id=c.book_id
+        WHERE b.title LIKE ? OR b.isbn LIKE ? OR c.inventory_code LIKE ?
+           OR c.barcode LIKE ? OR c.location LIKE ? OR c.shelf LIKE ?
+        ORDER BY b.title,c.copy_number LIMIT 500
+    """,(term,)*6).fetchall()
+    return view("""<h1>Inventarliste</h1><form method="get">
+    <input name="q" value="{{q}}" placeholder="Titel, ISBN, Barcode, Regal">
+    <button>Suchen</button></form><p>Maximal 500 Exemplare pro Ansicht.</p>
+    <table><tr><th>Titel</th><th>Inventarnummer</th><th>Barcode</th>
+    <th>Standort</th><th>Regal</th><th>Zustand</th><th>Status</th></tr>
+    {% for c in rows %}<tr><td>{{c.title}}</td><td>{{c.inventory_code}}</td>
+    <td>{{c.barcode or '–'}}</td><td>{{c.location or '–'}}</td>
+    <td>{{c.shelf or '–'}}</td><td>{{c.condition}}</td>
+    <td>{{'inaktiv' if not c.is_active else c.state}}</td></tr>{% endfor %}
+    </table>""",rows=rows,q=q)
+
 @bp.route('/add',methods=['GET','POST'])
 def add():
     conn=db(); meta={}
