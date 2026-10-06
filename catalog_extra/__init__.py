@@ -87,11 +87,16 @@ def index():
 @bp.post('/enrich-missing')
 def enrich_missing():
     conn=db()
+    after_id=session.get('enrich_after_id',0)
     rows=conn.execute("""SELECT id,isbn,title,author,description,cover_url,publisher,published,pages
         FROM books WHERE isbn IS NOT NULL AND TRIM(isbn)!=''
         AND (cover_url IS NULL OR TRIM(cover_url)='' OR publisher IS NULL OR TRIM(publisher)=''
              OR published IS NULL OR TRIM(published)='' OR description IS NULL OR TRIM(description)='')
-        ORDER BY id LIMIT 10""").fetchall()
+        AND id > ? ORDER BY id LIMIT 10""",(after_id,)).fetchall()
+    if not rows:
+        session['enrich_after_id']=0
+        flash('Alle Bücher wurden einmal geprüft. Mit erneutem Klick beginnt ein neuer Durchlauf.','info')
+        return redirect(url_for('.index'))
     changed=0; failed=0
     for book in rows:
         try:
@@ -105,7 +110,8 @@ def enrich_missing():
                 changed+=1
         except Exception:
             failed+=1
-    flash(f'{changed} Bücher ergänzt, {failed} ISBN-Abfragen fehlgeschlagen. Erneut klicken für die nächsten Bücher.','info')
+    if rows: session['enrich_after_id']=rows[-1]['id']
+    flash(f'{changed} Bücher ergänzt, {failed} ISBN-Abfragen ohne Treffer oder mit Fehler. Nächste Gruppe mit erneutem Klick.','info')
     return redirect(url_for('.index'))
 
 @bp.get('/inventory')
