@@ -3,6 +3,7 @@ import os
 import re
 import random
 import secrets
+import time
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -461,6 +462,13 @@ def login():
 
 
 # Public registration: pending approval, never creates admins.
+def render_registration():
+    """Issue a fresh, session-bound registration challenge on each form display."""
+    a, b = new_captcha()
+    session['registration_started_at'] = time.time()
+    return render_template('register.html', captcha_a=a, captcha_b=b)
+
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if session.get('user_id'):
@@ -472,8 +480,16 @@ def register():
         if not consume_registration_attempt(DATABASE, request.remote_addr or 'unknown'):
             security_log.warning("Registration throttled | ip=%s", request.remote_addr)
             flash('Zu viele Registrierungsversuche. Bitte in 15 Minuten erneut versuchen.', 'danger')
-            a, b = new_captcha()
-            return render_template('register.html', captcha_a=a, captcha_b=b)
+            return render_registration()
+        # A valid form must have been served first, and not submitted instantly.
+        started = session.pop('registration_started_at', None)
+        too_fast = (not isinstance(started, (int, float))
+                    or not 3 <= time.time() - started <= 3600)
+        honeypot_filled = bool(request.form.get('contact_website', '').strip())
+        if too_fast or honeypot_filled:
+            security_log.warning("Registration bot check failed | ip=%s", request.remote_addr)
+            flash('Registrierung konnte nicht geprüft werden. Bitte Formular erneut ausfüllen.', 'danger')
+            return render_registration()
         username = request.form.get('username', '').strip()
         full_name = request.form.get('full_name', '').strip()
         email = request.form.get('email', '').strip().lower()
@@ -497,8 +513,7 @@ def register():
                 return redirect(url_for('login'))
             except sqlite3.IntegrityError:
                     flash('Benutzername bereits vergeben.', 'danger')
-    a, b = new_captcha()
-    return render_template('register.html', captcha_a=a, captcha_b=b)
+    return render_registration()
 
 
 @app.route('/logout')

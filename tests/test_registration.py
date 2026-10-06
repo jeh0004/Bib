@@ -1,6 +1,7 @@
 import unittest
 import tempfile
 import os
+import time
 from werkzeug.security import generate_password_hash
 
 class RegistrationTests(unittest.TestCase):
@@ -23,6 +24,7 @@ class RegistrationTests(unittest.TestCase):
         with c.session_transaction() as s:
             captcha=s['captcha_ans']
             csrf=s['csrf_token']
+            s['registration_started_at']=time.time()-5
         result=c.post('/register',data={'username':'newmember','full_name':'Test Member',
             'email':'member@example.org','password':'Strong!Password123',
             'password_confirm':'Strong!Password123','captcha':captcha,'csrf_token':csrf})
@@ -98,3 +100,47 @@ class RegistrationTests(unittest.TestCase):
             'password_confirm':'Strong!Password123'})
         self.assertEqual(blocked.status_code,200)
         self.assertIn('Zu viele Registrierungsversuche',blocked.get_data(as_text=True))
+
+    def test_honeypot_and_timing_reject_bots(self):
+        from app import get_db
+        for i, mode in enumerate(('instant','honeypot','missing','expired')):
+            c=self.app.test_client()
+            c.get('/register')
+            with c.session_transaction() as sess:
+                csrf=sess['csrf_token']
+                captcha=sess['captcha_ans']
+                if mode == 'missing':
+                    sess.pop('registration_started_at',None)
+                elif mode == 'expired':
+                    sess['registration_started_at']=time.time()-3700
+                elif mode == 'honeypot':
+                    sess['registration_started_at']=time.time()-5
+            username='botmember'+str(i)
+            response=c.post('/register',environ_overrides={'REMOTE_ADDR':'198.51.100.'+str(i+20)},
+                data={'csrf_token':csrf,'captcha':str(captcha),
+                      'contact_website':'example.com' if mode=='honeypot' else '',
+                      'username':username,'full_name':'Bot Member',
+                      'email':'bot@example.org','password':'Strong!Password123',
+                      'password_confirm':'Strong!Password123'})
+            self.assertEqual(response.status_code,200)
+            with self.app.app_context():
+                self.assertIsNone(get_db().execute(
+                    'SELECT id FROM users WHERE username=?',(username,)).fetchone())
+
+    def test_human_registration_after_delay(self):
+        from app import get_db
+        c=self.app.test_client()
+        c.get('/register')
+        with c.session_transaction() as sess:
+            csrf=sess['csrf_token']
+            captcha=sess['captcha_ans']
+            sess['registration_started_at']=time.time()-5
+        response=c.post('/register',environ_overrides={'REMOTE_ADDR':'198.51.100.77'},
+            data={'csrf_token':csrf,'captcha':str(captcha),'contact_website':'',
+                  'username':'realmember','full_name':'Real Member',
+                  'email':'real@example.org','password':'Strong!Password123',
+                  'password_confirm':'Strong!Password123'})
+        self.assertEqual(response.status_code,302)
+        with self.app.app_context():
+            self.assertEqual(get_db().execute(
+                "SELECT is_active FROM users WHERE username='realmember'").fetchone()[0],0)
