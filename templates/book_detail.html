@@ -35,8 +35,9 @@
           <p class="text-success fw-bold"><i class="bi bi-check-circle"></i>
             {{ available }} / {{ book.total_copies }} {{ t.book_available }}
           </p>
-          {% if not my_loan %}
+          {% if not my_loan and can_reserve %}
             <form method="post" action="{{ url_for('reserve_book', book_id=book.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
               <button type="submit" class="btn btn-primary w-100">
                 <i class="bi bi-bookmark-plus"></i> {{ t.book_reserve }}
               </button>
@@ -46,6 +47,14 @@
           <p class="text-danger fw-bold"><i class="bi bi-x-circle"></i> {{ t.book_not_available }}</p>
         {% endif %}
 
+        {% if waitlist_position %}
+          <p class="text-info">Warteliste: Platz {{ waitlist_position }} von {{ waitlist_count }}.</p>
+        {% elif not my_loan and (available <= 0 or waitlist_count > 0) %}
+          <form method="post" action="{{ url_for('join_waitlist', book_id=book.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+            <button class="btn btn-outline-primary w-100">Auf die Warteliste setzen</button>
+          </form>
+        {% endif %}
         {% if my_loan %}
           <div class="alert alert-info mt-3 mb-2">
             <strong>{{ t.book_your_loan }}</strong><br>
@@ -55,6 +64,7 @@
             </strong>
           </div>
           <form method="post" action="{{ url_for('return_book', book_id=book.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
             <button type="submit" class="btn btn-outline-warning w-100"
                     onclick="return confirm('{{ t.book_confirm_return }}')">
               <i class="bi bi-arrow-return-left"></i> {{ t.book_log_return }}
