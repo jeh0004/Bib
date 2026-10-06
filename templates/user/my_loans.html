@@ -3,6 +3,7 @@
 {% block content %}
 <h1 class="h3 mb-4"><i class="bi bi-bookmark-check"></i> {{ t.loans_title }}</h1>
 
+<p class="text-muted">Reservierungen, Ausgaben und Rückgaben werden in der Bibliothek bearbeitet. Hier kannst du eine Verlängerung beantragen.</p>
 <h2 class="h5">{{ t.loans_active }}</h2>
 {% if active %}
 <div class="table-responsive mb-4">
@@ -34,13 +35,17 @@
         <td>{{ loan.borrowed_at[:10] if loan.borrowed_at else '–' }}</td>
         <td>{{ loan.due_date or '–' }}</td>
         <td>
-          <form method="post" action="{{ url_for('return_book', book_id=loan.book_id) }}">
-            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-            <button class="btn btn-sm btn-outline-warning"
-                    onclick="return confirm('{{ t.loans_confirm_return }}')">
-              <i class="bi bi-arrow-return-left"></i> {{ t.loans_return_btn }}
-            </button>
-          </form>
+          {% if loan.status == 'borrowed' %}
+            {% if loan.renewal_requested_at %}
+              <span class="text-muted small">Verlängerung beantragt · wartet auf Bibliothek</span>
+            {% else %}
+              <form method="post" action="{{url_for('request_renewal',loan_id=loan.id)}}">
+                <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
+                <button class="btn btn-sm btn-outline-primary">Verlängerung beantragen</button>
+              </form>
+            {% endif %}
+            <div class="text-muted small mt-1">Rückgabe vor Ort beim Bibliothekar</div>
+          {% else %}<span class="text-muted small">Ausgabe durch Bibliothekar</span>{% endif %}
         </td>
       </tr>
       {% endfor %}
