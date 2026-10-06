@@ -1,4 +1,5 @@
 import sqlite3
+import json
 import os
 import re
 import random
@@ -677,7 +678,21 @@ def book_detail(book_id):
     waitlist_position = next((i+1 for i, entry in enumerate(queue)
                               if entry['user_id'] == session['user_id']), None)
     can_reserve = available > 0 and (not queue or queue[0]['user_id'] == session['user_id'])
-    return render_template('book_detail.html', book=book, available=available,
+    # Older imported records store structured details as JSON in description.
+    # Parse for display only; never change the original database field.
+    description_text = book['description'] or ''
+    extra_details = {}
+    if description_text.strip().startswith('{'):
+        try:
+            parsed = json.loads(description_text)
+            if isinstance(parsed, dict):
+                extra_details = {str(k): str(v) for k, v in parsed.items()
+                                 if v is not None and str(v).strip()}
+                description_text = ''
+        except (ValueError, TypeError):
+            pass
+    return render_template('book_detail.html', description_text=description_text,
+                           extra_details=extra_details, book=book, available=available,
                            loans=loans, my_loan=my_loan, waitlist_position=waitlist_position,
                            waitlist_count=len(queue), can_reserve=can_reserve)
 
