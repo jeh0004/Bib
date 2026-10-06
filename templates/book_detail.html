@@ -2,23 +2,59 @@
 {% block title %}{{book.title}} – LeihGut{% endblock %}
 {% block content %}
 <nav aria-label="Navigation" class="mb-4"><a href="{{url_for('catalog')}}" class="text-decoration-none">← Zurück zum Katalog</a></nav>
-<div class="row g-4">
-  <div class="col-lg-7">
-    <div class="d-flex flex-column flex-sm-row gap-4">
-      <div class="bg-light rounded d-flex justify-content-center align-items-center p-3" style="width:190px;min-width:190px;min-height:230px">
-        {% if book.cover_url %}<img src="{{book.cover_url}}" alt="Buchcover: {{book.title}}" style="max-width:100%;max-height:260px;object-fit:contain" loading="lazy">{% else %}<i class="bi bi-book display-2 text-secondary" aria-hidden="true"></i>{% endif %}
+<div class="row g-4 align-items-start">
+  <div class="col-lg-8">
+    <article class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
+      <div class="row g-4 align-items-center">
+        <div class="col-sm-auto text-center">
+          <div class="rounded bg-light d-flex align-items-center justify-content-center mx-auto" style="width:180px;height:245px">
+            {% if book.cover_url %}<img src="{{book.cover_url}}" alt="Cover: {{book.title}}" style="max-width:100%;max-height:100%;object-fit:contain" loading="lazy">
+            {% else %}<div class="text-secondary"><i class="bi bi-book display-2" aria-hidden="true"></i><div class="small mt-2">Kein Cover vorhanden</div></div>{% endif %}
+          </div>
+        </div>
+        <div class="col">
+          {% if book.category %}<span class="badge bg-light text-dark border mb-2">{{book.category}}</span>{% endif %}
+          <h1 class="h2 mb-2">{{book.title}}</h1>
+          <p class="fs-5 text-secondary mb-3">{{book.author if book.author and book.author != 'Unbekannt' else 'Autor nicht angegeben'}}</p>
+          {% if extra_details.get('Gebietsthema') %}<p class="mb-2"><i class="bi bi-geo-alt text-secondary me-2"></i>{{extra_details['Gebietsthema']}}</p>{% endif %}
+          {% if extra_details.get('Sachthema') %}<p class="mb-2"><i class="bi bi-compass text-secondary me-2"></i>{{extra_details['Sachthema']}}</p>{% endif %}
+          <div class="small text-muted mt-3">Bibliotheksbestand · {{book.total_copies}} {% if book.total_copies == 1 %}Exemplar{% else %}Exemplare{% endif %}</div>
+        </div>
       </div>
-      <div><h1 class="h2 mb-2">{{book.title}}</h1><p class="fs-5 text-muted mb-3">{{book.author}}</p>
-      {% if book.category %}<span class="badge bg-light text-dark border">{{book.category}}</span>{% endif %}
-      {% if book.publisher or book.published %}<p class="mt-3 mb-1 text-muted">{{book.publisher or ''}}{% if book.published %} · {{book.published}}{% endif %}</p>{% endif %}
-      {% if book.pages %}<p class="text-muted small">{{book.pages}} Seiten</p>{% endif %}
-      {% if book.isbn %}<p class="text-muted small">ISBN {{book.isbn}}</p>{% endif %}</div>
-    </div>
-    {% if book.description %}<section class="mt-4"><h2 class="h5">Über dieses Buch</h2><p style="white-space:pre-line">{{book.description}}</p></section>{% endif %}
+    </div></article>
+
+    {% if description_text %}
+    <section class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
+      <h2 class="h5 mb-3"><i class="bi bi-card-text me-2 text-secondary"></i>Über dieses Buch</h2>
+      <p class="mb-0" style="white-space:pre-line;overflow-wrap:anywhere">{{description_text}}</p>
+    </div></section>
+    {% endif %}
+
+    {% if book.isbn or book.publisher or book.published or book.pages or extra_details %}
+    <section class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
+      <h2 class="h5 mb-3"><i class="bi bi-info-circle me-2 text-secondary"></i>Buchinformationen</h2>
+      <dl class="row mb-0 gy-3">
+        {% if book.publisher or extra_details.get('Verlag') %}<dt class="col-sm-4 text-secondary fw-normal">Verlag</dt><dd class="col-sm-8 mb-0">{{book.publisher or extra_details.get('Verlag')}}</dd>{% endif %}
+        {% if book.published or extra_details.get('Auflagedatum') %}<dt class="col-sm-4 text-secondary fw-normal">Erscheinungsjahr / Auflage</dt><dd class="col-sm-8 mb-0">{{book.published or extra_details.get('Auflagedatum')}}</dd>{% endif %}
+        {% if book.pages %}<dt class="col-sm-4 text-secondary fw-normal">Umfang</dt><dd class="col-sm-8 mb-0">{{book.pages}} Seiten</dd>{% endif %}
+        {% if book.isbn %}<dt class="col-sm-4 text-secondary fw-normal">ISBN</dt><dd class="col-sm-8 mb-0" style="overflow-wrap:anywhere">{{book.isbn}}</dd>{% endif %}
+        {% if book.category %}<dt class="col-sm-4 text-secondary fw-normal">Kategorie</dt><dd class="col-sm-8 mb-0">{{book.category}}</dd>{% endif %}
+        {% for key,value in extra_details.items() %}
+          {% if key not in ['Verlag','Auflagedatum','Gebietsthema','Sachthema'] %}
+          <dt class="col-sm-4 text-secondary fw-normal">{{key}}</dt><dd class="col-sm-8 mb-0" style="overflow-wrap:anywhere">{{value}}</dd>
+          {% endif %}
+        {% endfor %}
+        {% if extra_details.get('Gebietsthema') %}<dt class="col-sm-4 text-secondary fw-normal">Gebiet</dt><dd class="col-sm-8 mb-0">{{extra_details['Gebietsthema']}}</dd>{% endif %}
+        {% if extra_details.get('Sachthema') %}<dt class="col-sm-4 text-secondary fw-normal">Thema</dt><dd class="col-sm-8 mb-0">{{extra_details['Sachthema']}}</dd>{% endif %}
+      </dl>
+    </div></section>
+    {% endif %}
   </div>
-  <div class="col-lg-5">
-    <div class="card shadow-sm border-0"><div class="card-body p-4">
-      <h2 class="h5 mb-3">Dieses Buch ausleihen</h2>
+  <aside class="col-lg-4">
+    <div class="card border-0 shadow-sm mb-3"><div class="card-body p-4">
+      <h2 class="h5 mb-3">Verfügbarkeit & Ausleihe</h2>
+      {% if available > 0 %}<p class="text-success fw-semibold mb-3"><i class="bi bi-check-circle me-1"></i>{{available}} {% if available == 1 %}Exemplar verfügbar{% else %}Exemplare verfügbar{% endif %}</p>
+      {% else %}<p class="text-secondary fw-semibold mb-3"><i class="bi bi-clock me-1"></i>Aktuell kein Exemplar frei</p>{% endif %}
       {% if my_loan %}
         {% if my_loan.status == 'reserved' %}
           <div class="alert alert-success"><strong>Für dich reserviert</strong><p class="mb-0 mt-1">Deine Reservierung ist eingegangen. Die Ausgabe erfolgt über die Bibliotheksverwaltung.</p></div>
@@ -40,7 +76,11 @@
         <form method="post" action="{{url_for('join_waitlist',book_id=book.id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-outline-primary w-100">Auf die Warteliste</button></form>
       {% endif %}
     </div></div>
-    {% if session.role == 'admin' %}<div class="mt-3 d-grid gap-2"><a class="btn btn-outline-secondary" href="{{url_for('catalog_extra.detail',book_id=book.id)}}">Buchdaten und Exemplare verwalten</a><a class="btn btn-outline-secondary" href="{{url_for('admin_loans')}}">Reservierungen bearbeiten</a></div>{% endif %}
-  </div>
+    {% if session.role == 'admin' %}
+    <div class="d-grid gap-2">
+      <a class="btn btn-outline-secondary" href="{{url_for('catalog_extra.detail',book_id=book.id)}}">Buchdaten und Exemplare verwalten</a>
+      <a class="btn btn-outline-secondary" href="{{url_for('admin_loans')}}">Reservierungen bearbeiten</a>
+    </div>{% endif %}
+  </aside>
 </div>
 {% endblock %}
