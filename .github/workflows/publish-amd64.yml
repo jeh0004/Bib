@@ -1,0 +1,63 @@
+name: Build AMD64 test image
+on:
+  push:
+    branches: [entwicklung-phase3]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: leihgut-amd64-publish
+  cancel-in-progress: false
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run unit and syntax tests
+        run: |
+          python -m pip install -r requirements.txt
+          python -m compileall -q app.py catalog_extra loans_extra migrations
+          python -m unittest discover -s tests -v
+      - uses: docker/setup-buildx-action@v3
+      - name: Build AMD64 image locally
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: leihgut:amd64-ci
+      - name: Verify image architecture
+        run: |
+          test "$(docker image inspect leihgut:amd64-ci --format '{{.Architecture}}')" = amd64
+      - name: Container smoke test
+        run: |
+          docker run -d --name leihgut-amd64-ci -p 127.0.0.1:18081:5000 -e COOKIE_SECURE=false leihgut:amd64-ci
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:18081/login; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs leihgut-amd64-ci
+          exit 1
+      - name: Stop test container
+        if: always()
+        run: docker rm -f leihgut-amd64-ci || true
+      - name: Authenticate to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested AMD64 image
+        run: |
+          docker tag leihgut:amd64-ci ghcr.io/jeh0004/bib:phase3-amd64-test
+          docker tag leihgut:amd64-ci ghcr.io/jeh0004/bib:phase3-amd64-${GITHUB_SHA::12}
+          docker push ghcr.io/jeh0004/bib:phase3-amd64-${GITHUB_SHA::12}
+          docker push ghcr.io/jeh0004/bib:phase3-amd64-test
