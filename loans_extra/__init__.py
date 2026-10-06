@@ -14,6 +14,8 @@ def checkout(conn,copy_id,user_id):
         u=conn.execute('SELECT is_active FROM users WHERE id=?',(user_id,)).fetchone()
         if not c or not c['is_active'] or not u or not u['is_active']: raise ValueError('Exemplar oder Mitglied ungültig')
         book_id=c['book_id']
+        first=conn.execute("SELECT user_id FROM loan_waitlist WHERE book_id=? ORDER BY requested_at,id LIMIT 1",(book_id,)).fetchone()
+        if first and first['user_id']!=user_id: raise ValueError('Warteliste hat Vorrang')
         active=conn.execute("SELECT COUNT(*) FROM loans WHERE book_id=? AND status IN ('reserved','borrowed')",(book_id,)).fetchone()[0]
         copies=conn.execute('SELECT COUNT(*) FROM book_copies WHERE book_id=? AND is_active=1',(book_id,)).fetchone()[0]
         legacy=conn.execute('SELECT total_copies FROM books WHERE id=?',(book_id,)).fetchone()[0]
@@ -25,6 +27,7 @@ def checkout(conn,copy_id,user_id):
         days=conn.execute('SELECT loan_days FROM loan_policy WHERE id=1').fetchone()[0]
         due=(date.today()+timedelta(days=days)).isoformat()
         conn.execute("INSERT INTO loans(book_id,copy_id,user_id,status,borrowed_at,due_date) VALUES(?,?,?,'borrowed',datetime('now'),?)",(book_id,copy_id,user_id,due))
+        if first: conn.execute("DELETE FROM loan_waitlist WHERE book_id=? AND user_id=?",(book_id,user_id))
         conn.commit();return due
     except Exception: conn.rollback();raise
 def renew(conn,loan_id):
