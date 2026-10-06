@@ -395,14 +395,19 @@ def sync_book_copies(db, book_id, requested):
 
 
 def get_available_copies(db, book_id):
+    """Shared capacity rule for legacy reservations and physical copies."""
     book = db.execute("SELECT total_copies FROM books WHERE id = ?", (book_id,)).fetchone()
     if not book:
         return 0
+    physical = db.execute(
+        "SELECT COUNT(*) FROM book_copies WHERE book_id = ? AND is_active = 1",
+        (book_id,)
+    ).fetchone()[0]
     active = db.execute(
         "SELECT COUNT(*) FROM loans WHERE book_id = ? AND status IN ('reserved', 'borrowed')",
         (book_id,)
     ).fetchone()[0]
-    return book['total_copies'] - active
+    return max(0, min(book['total_copies'], physical) - active)
 
 # ---------------------------------------------------------------------------
 # Auth routes
