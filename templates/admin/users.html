@@ -57,6 +57,8 @@
         <td>
           {% if user.role == 'admin' %}
             <span class="badge bg-warning text-dark">{{ t.role_admin }}</span>
+          {% elif user.role == 'librarian' %}
+            <span class="badge bg-primary">Bibliothekar</span>
           {% else %}
             <span class="badge bg-secondary">{{ t.role_member }}</span>
           {% endif %}
@@ -122,6 +124,7 @@
             <label class="form-label">{{ t.field_role }}</label>
             <select name="role" class="form-select">
               <option value="user">{{ t.role_member }}</option>
+              <option value="librarian">Bibliothekar</option>
               <option value="admin">{{ t.role_admin }}</option>
             </select>
           </div>
