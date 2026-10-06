@@ -318,7 +318,7 @@ def set_security_headers(response):
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "font-src 'self'; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: https:; "
         "frame-ancestors 'none';"
     )
     return response
