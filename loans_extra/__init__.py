@@ -4,9 +4,16 @@ import sqlite3
 from flask import Blueprint,abort,flash,redirect,render_template_string,request,session,url_for
 bp=Blueprint('loans_extra',__name__,url_prefix='/admin/loans-extra')
 def db():
-    if not session.get('user_id') or session.get('role')!='admin' or session.get('must_change_password'): abort(403)
+    if not session.get('user_id') or session.get('must_change_password'): abort(403)
     from app import get_db
-    return get_db()
+    conn=get_db()
+    user=conn.execute('SELECT role,is_active FROM users WHERE id=?',(session['user_id'],)).fetchone()
+    if not user or not user['is_active'] or user['role'] not in ('admin','librarian'): abort(403)
+    return conn
+
+def admin_only():
+    conn=db()
+    if conn.execute('SELECT role FROM users WHERE id=?',(session['user_id'],)).fetchone()[0]!='admin': abort(403)
 def checkout(conn,copy_id,user_id):
     conn.execute('BEGIN IMMEDIATE')
     try:
@@ -33,14 +40,14 @@ def checkout(conn,copy_id,user_id):
 def renew(conn,loan_id):
     conn.execute('BEGIN IMMEDIATE')
     try:
-        l=conn.execute("SELECT * FROM loans WHERE id=? AND status='borrowed'",(loan_id,)).fetchone()
+        l=conn.execute("SELECT * FROM loans WHERE id=? AND status='borrowed' AND renewal_requested_at IS NOT NULL",(loan_id,)).fetchone()
         if not l or not l['due_date']: raise ValueError('Keine aktive Ausleihe mit Frist')
         p=conn.execute('SELECT loan_days,max_renewals FROM loan_policy WHERE id=1').fetchone()
         if l['renewal_count']>=p['max_renewals']: raise ValueError('Verlängerungslimit erreicht')
         if conn.execute("SELECT 1 FROM loans WHERE book_id=? AND status='reserved' AND id<>?",(l['book_id'],loan_id)).fetchone(): raise ValueError('Reservierung vorhanden')
         if conn.execute("SELECT 1 FROM loan_waitlist WHERE book_id=?",(l['book_id'],)).fetchone(): raise ValueError('Warteliste vorhanden')
         due=(max(date.today(),date.fromisoformat(l['due_date']))+timedelta(days=p['loan_days'])).isoformat()
-        conn.execute('UPDATE loans SET due_date=?,renewal_count=renewal_count+1 WHERE id=?',(due,loan_id))
+        conn.execute('UPDATE loans SET due_date=?,renewal_count=renewal_count+1,renewal_requested_at=NULL WHERE id=?',(due,loan_id))
         conn.commit();return due
     except Exception: conn.rollback();raise
 @bp.get('/')
@@ -53,6 +60,7 @@ def index():
     return render_template_string('''<!doctype html><html lang="de"><meta charset="utf-8"><title>LeihGut Ausleihe</title><a href="/admin/">Admin</a> | <a href="/admin/catalog-extra/">Katalog</a><h1>Exemplar-Ausleihe</h1>{% for cat,msg in get_flashed_messages(with_categories=true) %}<p>{{msg}}</p>{% endfor %}<form method="post" action="{{url_for('loans_extra.settings')}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}">Leihfrist <input type="number" name="days" min="1" max="365" value="{{p.loan_days}}">Verlängerungen <input type="number" name="max" min="0" max="20" value="{{p.max_renewals}}"><button>Regeln speichern</button></form><form method="post" action="{{url_for('loans_extra.borrow')}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><select name="copy_id">{% for c in copies %}<option value="{{c.id}}">{{c.title}} – {{c.inventory_code}}</option>{% endfor %}</select><select name="user_id">{% for u in users %}<option value="{{u.id}}">{{u.full_name}}</option>{% endfor %}</select><button>Ausleihen</button></form><h2>Aktive Vorgänge</h2>{% for l in rows %}<p>{{l.title}} – {{l.full_name}} – {{l.inventory_code or 'Altbestand'}} – {{l.status}} – {{l.due_date or 'ohne Frist'}} {% if l.status=='borrowed' %}<form method="post" action="{{url_for('loans_extra.action',loan_id=l.id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button name="action" value="renew">Verlängern</button><button name="action" value="return">Rückgabe</button></form>{% endif %}</p>{% endfor %}''',rows=rows,users=users,copies=copies,p=p)
 @bp.post('/settings')
 def settings():
+    admin_only()
     conn=db()
     try:
         days=int(request.form['days']);max_renewals=int(request.form['max'])
@@ -72,9 +80,14 @@ def action(loan_id):
     conn=db()
     try:
         if request.form.get('action')=='renew': flash('Fällig am '+renew(conn,loan_id),'success')
+        elif request.form.get('action')=='decline':
+            with conn:
+                c=conn.execute("UPDATE loans SET renewal_requested_at=NULL WHERE id=? AND status='borrowed' AND renewal_requested_at IS NOT NULL",(loan_id,))
+                if not c.rowcount: raise ValueError('Kein Antrag vorhanden')
+            flash('Verlängerungsantrag abgelehnt.','info')
         elif request.form.get('action')=='return':
             with conn:
-                c=conn.execute("UPDATE loans SET status='returned',returned_at=datetime('now') WHERE id=? AND status='borrowed'",(loan_id,))
+                c=conn.execute("UPDATE loans SET status='returned',returned_at=datetime('now'),renewal_requested_at=NULL WHERE id=? AND status='borrowed'",(loan_id,))
                 if c.rowcount!=1: raise ValueError('Keine aktive Ausleihe')
             flash('Zurückgegeben.','success')
         else: abort(400)
