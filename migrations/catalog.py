@@ -20,32 +20,35 @@ def migrate(db: sqlite3.Connection):
                                    ('area','TEXT'),('topic','TEXT'),('book_index','TEXT')]:
             if column not in columns:
                 db.execute(f'ALTER TABLE books ADD COLUMN {column} {definition}')
+                columns.add(column)
         # Normalize structured metadata from legacy JSON descriptions once, while
-        # retaining the original description for backwards compatibility.
-        for row in db.execute("SELECT id,description,area,topic,book_index,publisher,published FROM books").fetchall():
-            raw = row['description'] if hasattr(row, 'keys') else row[1]
-            if not raw or not str(raw).strip().startswith('{'):
-                continue
-            try:
-                meta = json.loads(raw)
-            except (ValueError, TypeError):
-                continue
-            if not isinstance(meta, dict):
-                continue
-            area = row['area'] if hasattr(row, 'keys') else row[2]
-            topic = row['topic'] if hasattr(row, 'keys') else row[3]
-            book_index = row['book_index'] if hasattr(row, 'keys') else row[4]
-            publisher = row['publisher'] if hasattr(row, 'keys') else row[5]
-            published = row['published'] if hasattr(row, 'keys') else row[6]
-            db.execute("""UPDATE books SET area=?,topic=?,book_index=?,publisher=?,published=?
-                          WHERE id=?""", (
-                area or meta.get('Gebietsthema') or None,
-                topic or meta.get('Sachthema') or None,
-                book_index or meta.get('Buchindex') or None,
-                publisher or meta.get('Verlag') or None,
-                published or meta.get('Auflagedatum') or None,
-                row['id'] if hasattr(row, 'keys') else row[0]
-            ))
+        # retaining the original description for backwards compatibility. Some
+        # lower-level migration tests intentionally use a reduced legacy books table.
+        if 'description' in columns:
+            for row in db.execute("SELECT id,description,area,topic,book_index,publisher,published FROM books").fetchall():
+                raw = row['description'] if hasattr(row, 'keys') else row[1]
+                if not raw or not str(raw).strip().startswith('{'):
+                    continue
+                try:
+                    meta = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(meta, dict):
+                    continue
+                area = row['area'] if hasattr(row, 'keys') else row[2]
+                topic = row['topic'] if hasattr(row, 'keys') else row[3]
+                book_index = row['book_index'] if hasattr(row, 'keys') else row[4]
+                publisher = row['publisher'] if hasattr(row, 'keys') else row[5]
+                published = row['published'] if hasattr(row, 'keys') else row[6]
+                db.execute("""UPDATE books SET area=?,topic=?,book_index=?,publisher=?,published=?
+                              WHERE id=?""", (
+                    area or meta.get('Gebietsthema') or None,
+                    topic or meta.get('Sachthema') or None,
+                    book_index or meta.get('Buchindex') or None,
+                    publisher or meta.get('Verlag') or None,
+                    published or meta.get('Auflagedatum') or None,
+                    row['id'] if hasattr(row, 'keys') else row[0]
+                ))
         loan_columns = {r[1] for r in db.execute('PRAGMA table_info(loans)')}
         if 'copy_id' not in loan_columns:
             db.execute('ALTER TABLE loans ADD COLUMN copy_id INTEGER REFERENCES book_copies(id)')
