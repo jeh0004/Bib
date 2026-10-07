@@ -1,6 +1,7 @@
 
-import json, secrets, sqlite3, re, unicodedata, os
+import json, secrets, sqlite3, re, unicodedata, os, html
 from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urljoin, urlparse
 from flask import Blueprint, abort, flash, redirect, render_template, render_template_string, request, session, url_for
 bp=Blueprint('catalog_extra',__name__,url_prefix='/admin/catalog-extra')
 def db():
@@ -119,6 +120,103 @@ def _publisher_matches(local, remote):
     a,b=words(local),words(remote)
     return bool(a and b and a & b)
 
+
+def _html_get(url, timeout=7):
+    with urlopen(Request(url,headers={
+        'User-Agent':'Mozilla/5.0 (compatible; LeihGut/2.0; library cover review)'
+    }),timeout=timeout) as response:
+        raw=response.read(900000)
+        charset=response.headers.get_content_charset() or 'utf-8'
+        return raw.decode(charset,'replace')
+
+def _extract_links(page, base_url, allowed_host):
+    links=[]
+    for href in re.findall(r'''(?is)<a\b[^>]*\bhref=["']([^"'#]+)["']''',page):
+        href=html.unescape(href).strip()
+        full=urljoin(base_url,href)
+        p=urlparse(full)
+        if p.scheme!='https' or p.netloc.lower()!=allowed_host.lower():
+            continue
+        if full not in links:
+            links.append(full)
+    return links
+
+def _meta_value(page, key):
+    patterns=[
+        rf'''(?is)<meta\b[^>]*(?:property|name|itemprop)=["']{re.escape(key)}["'][^>]*content=["']([^"']+)["']''',
+        rf'''(?is)<meta\b[^>]*content=["']([^"']+)["'][^>]*(?:property|name|itemprop)=["']{re.escape(key)}["']'''
+    ]
+    for pattern in patterns:
+        m=re.search(pattern,page)
+        if m:
+            return html.unescape(m.group(1)).strip()
+    return ''
+
+def _specialist_product(url, source, local):
+    try:
+        page=_html_get(url)
+    except Exception:
+        return None
+    title=_meta_value(page,'og:title') or _meta_value(page,'twitter:title')
+    image=_meta_value(page,'og:image') or _meta_value(page,'twitter:image') or _meta_value(page,'image')
+    if not image:
+        m=re.search(r'''(?is)"image"\s*:\s*(?:\[\s*)?["']([^"']+)["']''',page)
+        image=html.unescape(m.group(1)).strip() if m else ''
+    if image.startswith('//'): image='https:'+image
+    elif image: image=urljoin(url,image)
+    if not image.startswith('https://'):
+        return None
+    text=re.sub(r'<[^>]+>',' ',page)
+    text=html.unescape(re.sub(r'\s+',' ',text))
+    local_isbn=_normal_isbn(local['isbn'] if 'isbn' in local.keys() else '')
+    exact=bool(local_isbn and local_isbn in _normal_isbn(text))
+    title_ok=matching_title(local['title'],title or text[:500])
+    if not (exact or title_ok):
+        return None
+    score=(72 if exact else 0)+(18 if title_ok else 0)
+    if _author_matches(local['author'],text): score+=6
+    if _publisher_matches(local['publisher'] if 'publisher' in local.keys() else '',text): score+=4
+    return dict(source=source,title=title or local['title'],authors='',
+                cover_url=image,isbn=local_isbn if exact else '',publisher='',
+                confidence=min(score,94),exact_isbn=exact,query='Spezialquelle',
+                auto_eligible=False,product_url=url)
+
+def specialist_cover_candidates(book):
+    """Publisher/specialist-shop search. Candidates are always manual-review only."""
+    from urllib.error import HTTPError, URLError
+    local_isbn=_normal_isbn(book['isbn'] if 'isbn' in book.keys() else '')
+    title=(book['title'] or '').strip()
+    search_term=local_isbn or title
+    if not search_term:
+        return []
+    configs=[
+        ('Bergverlag Rother','https://www.rother.de',
+         'https://www.rother.de/de/catalogsearch/result/?q={q}',
+         lambda u:'/de/' in urlparse(u).path and u.endswith('.html')),
+        ('Panico Alpinverlag','https://www.panico.de',
+         'https://www.panico.de/catalogsearch/result/?q={q}',
+         lambda u:u.endswith('.html') and '/media/' not in u),
+        ('Das Landkartenhaus','https://www.das-landkartenhaus.de',
+         'https://www.das-landkartenhaus.de/search?search={q}',
+         lambda u:'/search' not in urlparse(u).path and len(urlparse(u).path)>2),
+    ]
+    found=[]
+    for source,base,pattern,is_product in configs:
+        try:
+            search_url=pattern.format(q=urlencode({'x':search_term})[2:])
+            page=_html_get(search_url)
+            host=urlparse(base).netloc
+            links=[u for u in _extract_links(page,base,host) if is_product(u)][:8]
+            for link in links:
+                item=_specialist_product(link,source,book)
+                if item and not any(x['cover_url']==item['cover_url'] for x in found):
+                    found.append(item)
+                    if item['exact_isbn']:
+                        break
+        except (HTTPError,URLError,TimeoutError,ValueError,OSError,TypeError):
+            continue
+    return sorted(found,key=lambda x:(x['exact_isbn'],x['confidence']),reverse=True)[:8]
+
 def expanded_cover_candidates(book):
     """Search multiple public book indexes and score candidates conservatively."""
     from urllib.parse import urlencode
@@ -147,7 +245,7 @@ def expanded_cover_candidates(book):
             score=max(score,95)
         results.append(dict(source=source,title=c_title,authors=c_author,cover_url=cover,
                             isbn=isbn,publisher=c_publisher,confidence=min(score,100),
-                            exact_isbn=exact_isbn,query=query))
+                            exact_isbn=exact_isbn,query=query,auto_eligible=True,product_url=''))
 
     def fetch(url):
         with urlopen(Request(url,headers={'User-Agent':'LeihGut/2.0 (DAV library cover matching)'}),timeout=7) as response:
@@ -220,6 +318,9 @@ def expanded_cover_candidates(book):
         except (HTTPError,URLError,TimeoutError,ValueError,OSError,TypeError):
             pass
 
+    for item in specialist_cover_candidates(book):
+        if not any(x['cover_url']==item['cover_url'] for x in results):
+            results.append(item)
     return sorted(results,key=lambda x:(x['confidence'],x['exact_isbn']),reverse=True)[:12]
 
 def _save_candidates(conn,book,candidates):
@@ -369,7 +470,9 @@ def scan_covers():
             if candidates:
                 best=candidates[0]
                 second=candidates[1]['confidence'] if len(candidates)>1 else -1
-                if best['confidence']>=95 and best['exact_isbn'] and best['confidence']-second>=5:
+                if (best['confidence']>=95 and best['exact_isbn']
+                    and best.get('auto_eligible',True)
+                    and best['confidence']-second>=5):
                     _apply_cover(conn,book['id'],best['cover_url'],best['source'],'auto',best['confidence'])
                     auto+=1
                 else:
