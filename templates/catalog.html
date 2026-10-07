@@ -1,51 +1,91 @@
 {% extends 'base.html' %}
 {% block title %}{{ t.catalog_title }} – Vereinsbibliothek{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h3 mb-0"><i class="bi bi-search"></i> {{ t.catalog_title }}</h1>
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
+  <div>
+    <h1 class="h3 mb-1"><i class="bi bi-search"></i> {{ t.catalog_title }}</h1>
+    <div class="text-muted">{{ result_count }} {% if result_count == 1 %}Medium gefunden{% else %}Medien gefunden{% endif %}</div>
+  </div>
 </div>
 
-<form class="row g-2 mb-4" method="get">
-  <div class="col">
-    <input type="text" name="q" class="form-control" placeholder="{{ t.catalog_search_placeholder }}" value="{{ q }}">
-  </div>
-  <div class="col-auto">
-    <button type="submit" class="btn btn-outline-primary"><i class="bi bi-search"></i> {{ t.catalog_search }}</button>
-    {% if q %}<a href="{{ url_for('catalog') }}" class="btn btn-outline-secondary">{{ t.catalog_reset }}</a>{% endif %}
+<form class="card border-0 shadow-sm mb-4" method="get">
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-12 col-lg-5">
+        <label class="form-label">Suche</label>
+        <input type="search" name="q" class="form-control" placeholder="Titel, Autor, ISBN, Inventarnummer …" value="{{ q }}">
+      </div>
+      <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label">Kategorie</label>
+        <select name="category" class="form-select">
+          <option value="">Alle Kategorien</option>
+          {% for item in categories %}<option value="{{item}}" {% if item==category %}selected{% endif %}>{{item}}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-sm-6 col-lg-4">
+        <label class="form-label">Autor</label>
+        <input name="author" class="form-control" list="authors" value="{{author}}" placeholder="Autor filtern">
+        <datalist id="authors">{% for item in authors %}<option value="{{item}}">{% endfor %}</datalist>
+      </div>
+      <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label">Gebiet</label>
+        <input name="area" class="form-control" value="{{area}}" placeholder="z. B. Allgäu">
+      </div>
+      <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label">Thema</label>
+        <input name="topic" class="form-control" value="{{topic}}" placeholder="z. B. Wandern">
+      </div>
+      <div class="col-12 col-lg-3 d-flex align-items-end">
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" name="available" value="1" id="availableOnly" {% if available_only %}checked{% endif %}>
+          <label class="form-check-label" for="availableOnly">Nur verfügbare Medien</label>
+        </div>
+      </div>
+      <div class="col-12 col-lg-3 d-flex align-items-end gap-2">
+        <button type="submit" class="btn btn-primary flex-grow-1"><i class="bi bi-search"></i> Suchen</button>
+        {% if q or category or author or area or topic or available_only %}<a href="{{url_for('catalog')}}" class="btn btn-outline-secondary">Zurücksetzen</a>{% endif %}
+      </div>
+    </div>
   </div>
 </form>
 
 {% if books %}
-<div class="row row-cols-2 row-cols-md-3 row-cols-xl-4 g-3">
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-4 g-4">
 {% for book in books %}
-  <div class="col"><a href="{{ url_for('book_detail', book_id=book.id) }}"
-    class="card h-100 shadow-sm text-decoration-none text-body">
-    {% if book.cover_url %}
-      <img src="{{ book.cover_url }}" class="card-img-top"
-           alt="Cover von {{ book.title }}" loading="lazy"
-           style="height:210px;object-fit:contain;padding:12px">
-    {% else %}
-      <div class="d-flex align-items-center justify-content-center bg-light text-muted"
-           style="height:210px"><i class="bi bi-book fs-1"></i></div>
-    {% endif %}
-    <div class="card-body py-2">
-      <div class="fw-semibold">{{ book.title }}</div>
-      <div class="small text-muted">{{ book.author }}</div>
-    </div>
-    <div class="card-footer small">
-      {% if book.available > 0 %}
-        <span class="text-success">Verfügbar: {{ book.available }}</span>
-      {% else %}
-        <span class="text-danger">Derzeit nicht verfügbar</span>
-      {% endif %}
-    </div>
-  </a></div>
+  <div class="col">
+    <a href="{{ url_for('book_detail', book_id=book.id) }}" class="card h-100 shadow-sm text-decoration-none text-body catalog-card">
+      <div class="catalog-cover bg-light">
+        {% if book.cover_url %}
+          <img src="{{ book.cover_url }}" alt="Cover von {{ book.title }}" loading="lazy">
+        {% else %}
+          <div class="text-muted text-center"><i class="bi bi-book fs-1"></i><div class="small mt-2">Kein Cover</div></div>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <div class="fw-semibold text-truncate-3 mb-1">{{ book.title }}</div>
+        <div class="small text-muted mb-2">{{ book.author if book.author and book.author != 'Unbekannt' else 'Autor nicht angegeben' }}</div>
+        <div class="d-flex flex-wrap gap-1">
+          {% if book.category %}<span class="badge text-bg-light border">{{book.category}}</span>{% endif %}
+          {% if book.published %}<span class="badge text-bg-light border">{{book.published}}</span>{% endif %}
+        </div>
+      </div>
+      <div class="card-footer bg-white border-top-0 pt-0">
+        {% if book.available > 0 %}
+          <span class="text-success fw-semibold"><i class="bi bi-check-circle"></i> {% if book.available == 1 %}1 Exemplar verfügbar{% else %}{{book.available}} Exemplare verfügbar{% endif %}</span>
+        {% else %}
+          <span class="text-secondary fw-semibold"><i class="bi bi-clock"></i> Derzeit nicht verfügbar</span>
+        {% endif %}
+      </div>
+    </a>
+  </div>
 {% endfor %}
 </div>
 {% else %}
-<div class="text-center text-muted py-5">
+<div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-5">
   <i class="bi bi-journal-x display-4"></i>
-  <p class="mt-2">{{ t.catalog_no_books }}</p>
-</div>
+  <h2 class="h5 mt-3">Keine passenden Medien gefunden</h2>
+  <p class="mb-3">Ändere die Suchbegriffe oder entferne einzelne Filter.</p>
+  <a href="{{url_for('catalog')}}" class="btn btn-outline-primary">Alle Medien anzeigen</a>
+</div></div>
 {% endif %}
 {% endblock %}
