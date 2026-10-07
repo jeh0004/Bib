@@ -53,6 +53,7 @@
             <div class="fw-semibold">{{item.candidate_title}}</div>
             <div class="text-muted">{{item.candidate_author or 'Autor unbekannt'}}</div>
             {% if item.candidate_isbn %}<div class="text-muted mt-1">ISBN {{item.candidate_isbn}}</div>{% endif %}
+            {% if item.source_url %}<div class="mt-2"><a href="{{item.source_url}}" target="_blank" rel="noopener noreferrer" class="link-secondary">Quelle öffnen ↗</a></div>{% endif %}
           </div>
           <form method="post" action="{{url_for('catalog_extra.choose_candidate',book_id=book.id,candidate_id=item.id)}}" class="mt-3">
             <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
