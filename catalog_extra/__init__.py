@@ -199,8 +199,39 @@ def specialist_cover_candidates(book):
         ('Das Landkartenhaus','https://www.das-landkartenhaus.de',
          'https://www.das-landkartenhaus.de/search?search={q}',
          lambda u:'/search' not in urlparse(u).path and len(urlparse(u).path)>2),
+        ('ZVAB','https://www.zvab.com',
+         'https://www.zvab.com/servlet/SearchResults?isbn={q}',
+         lambda u:'/servlet/' not in urlparse(u).path and ('/plp' in u or '978' in u)),
+        ('Freytag & Berndt','https://www.freytagberndt.com',
+         'https://www.freytagberndt.com/en/catalogsearch/result/?q={q}',
+         lambda u:u.endswith('.html') and '/catalogsearch/' not in u),
+        ('Preigu','https://preigu.de',
+         'https://preigu.de/search?sSearch={q}',
+         lambda u:'/search' not in urlparse(u).path and '/buecher/' in u),
     ]
     found=[]
+    curated={
+        '9783859022904': [
+            ('Die Buchsuche','https://diebuchsuche.de/buch-9783859022904.html'),
+        ],
+        '9783859022522': [
+            ('ZVAB','https://www.zvab.com/9783859022522/Alpinf%C3%BChrer-B%C3%BCndner-Alpen-S%C3%BCdliches-Bergell-3859022520/plp'),
+            ('Preigu','https://preigu.de/buecher/clubfuehrer-buendner-alpen-4/101448054'),
+        ],
+        '9783859022126': [
+            ('ZVAB','https://www.zvab.com/9783859022126/BUENDNER-ALPEN-5-BERNINA-GRUPPE-ING-3859022121/plp'),
+            ('Freytag & Berndt','https://www.freytagberndt.com/en/clubfuhrer-bundner-alpen-5.html'),
+        ],
+        '9783763361052': [
+            ('Bergverlag Rother','https://www.rother.de/de/thema/lehrbucher/alpin-lehrplan-7.html'),
+        ],
+    }
+    # Known, externally verified edition pages are tried first. They are still
+    # review-only and never eligible for automatic acceptance.
+    for source,url in curated.get(local_isbn,[]):
+        item=_specialist_product(url,source,book)
+        if item and not any(x['cover_url']==item['cover_url'] for x in found):
+            found.append(item)
     for source,base,pattern,is_product in configs:
         try:
             search_url=pattern.format(q=urlencode({'x':search_term})[2:])
