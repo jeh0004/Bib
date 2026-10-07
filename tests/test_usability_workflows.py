@@ -20,9 +20,9 @@ class UsabilityWorkflowTests(unittest.TestCase):
             self.member_id=db.execute("SELECT id FROM users WHERE username='member'").fetchone()[0]
             db.execute("INSERT INTO users(username,full_name,role,is_active) VALUES('lib','Berta Bibliothekar','librarian',1)")
             self.lib_id=db.execute("SELECT id FROM users WHERE username='lib'").fetchone()[0]
-            db.execute("""INSERT INTO books(title,author,category,description,total_copies,published)
+            db.execute("""INSERT INTO books(title,author,category,description,total_copies,published,area,topic)
                           VALUES('Allgäu Test','Anna Autor','Wandern',
-                          '{"Gebietsthema":"Allgäu","Sachthema":"Bergwandern"}',1,'2025')""")
+                          '{"Gebietsthema":"Allgäu","Sachthema":"Bergwandern"}',1,'2025','Allgäu','Bergwandern')""")
             self.book_id=db.execute("SELECT last_insert_rowid()").fetchone()[0]
             db.execute("""INSERT INTO book_copies(book_id,copy_number,inventory_code,barcode,qr_token)
                           VALUES(?,1,'LG-TEST-1','123456789','token-usability')""",(self.book_id,))
