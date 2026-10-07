@@ -1,7 +1,7 @@
 
-import json, secrets, sqlite3, re, unicodedata
+import json, secrets, sqlite3, re, unicodedata, os
 from urllib.request import Request, urlopen
-from flask import Blueprint, abort, flash, redirect, render_template_string, request, session, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, render_template_string, request, session, url_for
 bp=Blueprint('catalog_extra',__name__,url_prefix='/admin/catalog-extra')
 def db():
     if not session.get('user_id') or session.get('role')!='admin' or session.get('must_change_password'): abort(403)
@@ -98,6 +98,160 @@ def safe_enrichment(book, meta):
     return {field:meta[field] for field in ('description','cover_url','publisher','published','pages')
             if not book[field] and meta.get(field)}
 
+
+
+def _normal_isbn(value):
+    return ''.join(c for c in (value or '').upper() if c.isdigit() or c == 'X')
+
+def _author_matches(local, remote):
+    local=(local or '').strip()
+    remote=(remote or '').strip()
+    if not local or local.casefold()=='unbekannt' or not remote:
+        return False
+    local_parts=[x.strip() for x in re.split(r'[,;/]| und ',local) if x.strip()]
+    return any(matching_title(part,remote) for part in local_parts)
+
+def _publisher_matches(local, remote):
+    def words(value):
+        value=unicodedata.normalize('NFKD',(value or '').casefold())
+        return {x for x in re.findall(r'[a-z0-9]{3,}',value)
+                if x not in {'verlag','bergverlag','gmbh','edition'}}
+    a,b=words(local),words(remote)
+    return bool(a and b and a & b)
+
+def expanded_cover_candidates(book):
+    """Search multiple public book indexes and score candidates conservatively."""
+    from urllib.parse import urlencode
+    from urllib.error import HTTPError, URLError
+    title=(book['title'] or '').strip()
+    author=(book['author'] or '').strip()
+    publisher=(book['publisher'] or '').strip() if 'publisher' in book.keys() else ''
+    local_isbn=_normal_isbn(book['isbn'] if 'isbn' in book.keys() else '')
+    results=[]
+
+    def add(source,c_title,c_author,cover,isbn='',c_publisher='',query=''):
+        if not cover or not str(cover).startswith('https://'):
+            return
+        if any(x['cover_url']==cover for x in results):
+            return
+        cand_isbns=[_normal_isbn(x) for x in re.split(r'[,; ]+',isbn or '') if _normal_isbn(x)]
+        exact_isbn=bool(local_isbn and local_isbn in cand_isbns)
+        title_ok=matching_title(title,c_title)
+        author_ok=_author_matches(author,c_author)
+        publisher_ok=_publisher_matches(publisher,c_publisher)
+        if not title_ok and not exact_isbn:
+            return
+        score=(62 if exact_isbn else 0)+(25 if title_ok else 0)+(9 if author_ok else 0)+(4 if publisher_ok else 0)
+        # Unknown authors are common in the legacy catalog; exact ISBN + title is enough for auto use.
+        if author.casefold()=='unbekannt' and exact_isbn and title_ok:
+            score=max(score,95)
+        results.append(dict(source=source,title=c_title,authors=c_author,cover_url=cover,
+                            isbn=isbn,publisher=c_publisher,confidence=min(score,100),
+                            exact_isbn=exact_isbn,query=query))
+
+    def fetch(url):
+        with urlopen(Request(url,headers={'User-Agent':'LeihGut/2.0 (DAV library cover matching)'}),timeout=7) as response:
+            return json.load(response)
+
+    queries=[]
+    if local_isbn:
+        queries.append(('isbn',local_isbn))
+    if title and author and author.casefold()!='unbekannt':
+        queries.append(('title_author',(title,author)))
+    if title and publisher:
+        queries.append(('title_publisher',(title,publisher)))
+    if title:
+        queries.append(('title',title))
+
+    # Open Library: exact ISBN plus progressively broader title searches.
+    try:
+        if local_isbn:
+            data=fetch('https://openlibrary.org/api/books?'+urlencode(
+                {'bibkeys':'ISBN:'+local_isbn,'jscmd':'data','format':'json'}))
+            entry=data.get('ISBN:'+local_isbn) or {}
+            cover=entry.get('cover') or {}
+            if entry and cover:
+                add('Open Library',entry.get('title',''),
+                    ', '.join(a.get('name','') for a in entry.get('authors',[])),
+                    cover.get('large') or cover.get('medium') or '',
+                    local_isbn,', '.join(p.get('name','') for p in entry.get('publishers',[])),'ISBN')
+    except (HTTPError,URLError,TimeoutError,ValueError,OSError,TypeError):
+        pass
+    for mode,value in queries[1:] if local_isbn else queries:
+        try:
+            params={'fields':'title,author_name,cover_i,isbn,publisher','limit':10}
+            if mode=='title_author':
+                params.update(title=value[0],author=value[1])
+            elif mode=='title_publisher':
+                params.update(title=value[0],publisher=value[1])
+            else:
+                params.update(title=value)
+            data=fetch('https://openlibrary.org/search.json?'+urlencode(params))
+            for doc in data.get('docs',[]):
+                cid=doc.get('cover_i')
+                if not cid: continue
+                add('Open Library',doc.get('title',''),', '.join(doc.get('author_name') or []),
+                    f'https://covers.openlibrary.org/b/id/{int(cid)}-L.jpg',
+                    ', '.join((doc.get('isbn') or [])[:5]),
+                    ', '.join((doc.get('publisher') or [])[:3]),mode)
+        except (HTTPError,URLError,TimeoutError,ValueError,OSError,TypeError):
+            pass
+
+    # Google Books: exact ISBN, then title/author, title/publisher and title-only.
+    google_queries=[]
+    if local_isbn: google_queries.append(('ISBN',f'isbn:{local_isbn}'))
+    if title and author and author.casefold()!='unbekannt':
+        google_queries.append(('Titel+Autor',f'intitle:{title} inauthor:{author}'))
+    if title and publisher:
+        google_queries.append(('Titel+Verlag',f'intitle:{title} inpublisher:{publisher}'))
+    if title: google_queries.append(('Titel',f'intitle:{title}'))
+    for label,q in google_queries:
+        try:
+            data=fetch('https://www.googleapis.com/books/v1/volumes?'+urlencode(
+                {'q':q,'maxResults':10,'printType':'books'}))
+            for volume in data.get('items',[]):
+                info=volume.get('volumeInfo') or {}
+                covers=info.get('imageLinks') or {}
+                cover=covers.get('extraLarge') or covers.get('large') or covers.get('medium') or covers.get('thumbnail') or ''
+                if cover.startswith('http://'): cover='https://'+cover[7:]
+                add('Google Books',info.get('title',''),', '.join(info.get('authors') or []),cover,
+                    ', '.join(x.get('identifier','') for x in info.get('industryIdentifiers') or []),
+                    info.get('publisher',''),label)
+        except (HTTPError,URLError,TimeoutError,ValueError,OSError,TypeError):
+            pass
+
+    return sorted(results,key=lambda x:(x['confidence'],x['exact_isbn']),reverse=True)[:12]
+
+def _save_candidates(conn,book,candidates):
+    conn.execute("UPDATE cover_candidates SET status='stale' WHERE book_id=? AND status='pending'",(book['id'],))
+    for item in candidates:
+        conn.execute("""INSERT INTO cover_candidates
+            (book_id,cover_url,source,candidate_title,candidate_author,candidate_isbn,confidence,status)
+            VALUES(?,?,?,?,?,?,?,'pending')
+            ON CONFLICT(book_id,cover_url) DO UPDATE SET
+              source=excluded.source,candidate_title=excluded.candidate_title,
+              candidate_author=excluded.candidate_author,candidate_isbn=excluded.candidate_isbn,
+              confidence=excluded.confidence,status='pending',created_at=datetime('now')""",
+            (book['id'],item['cover_url'],item['source'],item['title'],item['authors'],item['isbn'],item['confidence']))
+
+def _apply_cover(conn,book_id,url,source,status,confidence):
+    conn.execute("""UPDATE books SET cover_url=?,cover_source=?,cover_status=?,
+                    cover_confidence=?,cover_checked_at=datetime('now') WHERE id=?""",
+                 (url,source,status,confidence,book_id))
+    conn.execute("UPDATE cover_candidates SET status='rejected' WHERE book_id=? AND status='pending'",(book_id,))
+
+def _valid_cover_upload(storage):
+    filename=(storage.filename or '').lower()
+    ext=filename.rsplit('.',1)[-1] if '.' in filename else ''
+    if ext not in {'jpg','jpeg','png','webp'}:
+        raise ValueError('Bitte ein JPG-, PNG- oder WebP-Bild hochladen.')
+    head=storage.stream.read(16)
+    storage.stream.seek(0)
+    ok=(head.startswith(b'\xff\xd8\xff') or head.startswith(b'\x89PNG\r\n\x1a\n')
+        or (len(head)>=12 and head[:4]==b'RIFF' and head[8:12]==b'WEBP'))
+    if not ok:
+        raise ValueError('Die hochgeladene Datei ist kein gültiges Coverbild.')
+    return 'jpg' if ext=='jpeg' else ext
 
 def cover_suggestions(book):
     """Suggestions only: title/author search is not proof of the same edition."""
