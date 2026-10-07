@@ -14,6 +14,28 @@ def db():
 def admin_only():
     conn=db()
     if conn.execute('SELECT role FROM users WHERE id=?',(session['user_id'],)).fetchone()[0]!='admin': abort(403)
+
+def resolve_member(conn,value):
+    value=(value or '').strip()
+    if not value: raise ValueError('Bitte ein Mitglied auswählen')
+    if value.isdigit():
+        row=conn.execute("SELECT id FROM users WHERE id=? AND is_active=1 AND role='user'",(int(value),)).fetchone()
+    else:
+        username=value.split(' – ',1)[0].strip()
+        row=conn.execute("SELECT id FROM users WHERE is_active=1 AND role='user' AND (username=? OR full_name=?)",(username,value)).fetchone()
+    if not row: raise ValueError('Mitglied nicht gefunden')
+    return row['id']
+
+def resolve_copy(conn,value):
+    value=(value or '').strip()
+    if not value: raise ValueError('Bitte ein Exemplar auswählen oder scannen')
+    if value.isdigit():
+        row=conn.execute("SELECT id FROM book_copies WHERE id=? AND is_active=1",(int(value),)).fetchone()
+    else:
+        code=value.split(' – ',1)[0].strip()
+        row=conn.execute("SELECT id FROM book_copies WHERE is_active=1 AND (inventory_code=? OR barcode=?)",(code,code)).fetchone()
+    if not row: raise ValueError('Exemplar nicht gefunden')
+    return row['id']
 def checkout(conn,copy_id,user_id):
     conn.execute('BEGIN IMMEDIATE')
     try:
@@ -112,9 +134,14 @@ def settings():
 @bp.post('/borrow')
 def borrow():
     conn=db()
-    try: flash('Fällig am '+checkout(conn,int(request.form['copy_id']),int(request.form['user_id'])),'success')
-    except (ValueError,KeyError,sqlite3.IntegrityError) as e: flash(str(e),'danger')
-    return redirect(url_for('.index'))
+    try:
+        copy_value=request.form.get('copy_lookup') or request.form.get('copy_id')
+        member_value=request.form.get('member_lookup') or request.form.get('user_id')
+        due=checkout(conn,resolve_copy(conn,copy_value),resolve_member(conn,member_value))
+        flash('Ausgabe verbucht. Rückgabe bis '+date.fromisoformat(due).strftime('%d.%m.%Y')+'.','success')
+    except (ValueError,KeyError,sqlite3.IntegrityError) as e:
+        flash(str(e),'danger')
+    return redirect(url_for('admin_loans'))
 @bp.post('/<int:loan_id>/action')
 def action(loan_id):
     conn=db()
@@ -132,4 +159,26 @@ def action(loan_id):
             flash('Zurückgegeben.','success')
         else: abort(400)
     except ValueError as e: flash(str(e),'danger')
-    return redirect(url_for('.index'))
+    return redirect(url_for('admin_loans'))
+
+@bp.post('/quick-return')
+def quick_return():
+    conn=db()
+    code=(request.form.get('return_code') or '').strip()
+    if not code:
+        flash('Bitte Inventarnummer oder Barcode eingeben.','warning')
+        return redirect(url_for('admin_loans'))
+    row=conn.execute("""
+        SELECT l.id,b.title,u.full_name,c.inventory_code
+        FROM loans l JOIN books b ON b.id=l.book_id JOIN users u ON u.id=l.user_id
+        JOIN book_copies c ON c.id=l.copy_id
+        WHERE l.status='borrowed' AND (c.inventory_code=? OR c.barcode=?)
+    """,(code,code)).fetchone()
+    if not row:
+        flash('Keine aktive Ausleihe zu dieser Inventarnummer oder diesem Barcode gefunden.','danger')
+        return redirect(url_for('admin_loans'))
+    with conn:
+        conn.execute("""UPDATE loans SET status='returned',returned_at=datetime('now'),
+                     renewal_requested_at=NULL WHERE id=? AND status='borrowed'""",(row['id'],))
+    flash(f"Rücknahme verbucht: {row['title']} – {row['full_name']}.",'success')
+    return redirect(url_for('admin_loans'))
