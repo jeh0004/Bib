@@ -70,7 +70,7 @@ class UsabilityWorkflowTests(unittest.TestCase):
 
         response=self.post('/admin/loans-extra/borrow',
                            copy_lookup='LG-TEST-1',
-                           member_lookup='member \xe2\x80\x93 Max Mitglied')
+                           member_lookup='member')
         self.assertEqual(response.status_code,302)
         with module.app.app_context():
             loan=module.get_db().execute("SELECT * FROM loans WHERE book_id=?",(self.book_id,)).fetchone()
@@ -87,7 +87,7 @@ class UsabilityWorkflowTests(unittest.TestCase):
         self.login(self.lib_id,'librarian','Berta Bibliothekar')
         self.post('/admin/loans-extra/borrow',
                   copy_lookup='LG-TEST-1',
-                  member_lookup='member \xe2\x80\x93 Max Mitglied')
+                  member_lookup='member')
         with module.app.app_context():
             loan_id=module.get_db().execute("SELECT id FROM loans WHERE book_id=?",(self.book_id,)).fetchone()[0]
 
