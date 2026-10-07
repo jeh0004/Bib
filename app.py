@@ -1071,10 +1071,24 @@ def admin_loans():
           AND l.due_date <= date('now','+3 days')
         ORDER BY l.due_date,l.id
     """).fetchall()
+    members = db.execute("""
+        SELECT id,username,full_name FROM users
+        WHERE is_active=1 AND role='user' ORDER BY full_name
+    """).fetchall()
+    available_copies = db.execute("""
+        SELECT c.id,c.inventory_code,c.barcode,b.title
+        FROM book_copies c JOIN books b ON b.id=c.book_id
+        WHERE c.is_active=1
+          AND NOT EXISTS (
+            SELECT 1 FROM loans l WHERE l.copy_id=c.id AND l.status IN ('reserved','borrowed')
+          )
+        ORDER BY b.title,c.copy_number
+    """).fetchall()
     now = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     return render_template('admin/loans.html', loans=loans, status_filter=status_filter,
                            q=search, now=now, reminders=reminders, stats=stats,
-                           reservations=reservations, renewal_requests=renewal_requests)
+                           reservations=reservations, renewal_requests=renewal_requests,
+                           members=members, available_copies=available_copies)
 
 @app.route('/admin/loans/<int:loan_id>/confirm', methods=['POST'])
 @librarian_required
