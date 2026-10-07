@@ -527,14 +527,16 @@ def detail(book_id):
                     else:
                         flash('Keine fehlenden Informationen gefunden.','info')
                 elif action=='choose_cover':
-                    # Revalidate against fresh search results; never trust submitted URLs.
                     selected=request.form.get('cover_url','')
-                    matches=cover_suggestions(book)
-                    if not any(x['cover_url']==selected for x in matches):
+                    matches=expanded_cover_candidates(book)
+                    match=next((x for x in matches if x['cover_url']==selected),None)
+                    if not match:
                         raise ValueError('Cover-Vorschlag nicht mehr verfügbar')
-                    conn.execute('UPDATE books SET cover_url=? WHERE id=?',(selected,book_id))
+                    _apply_cover(conn,book_id,selected,match['source'],'reviewed',match['confidence'])
                 elif action=='remove_cover':
-                    conn.execute('UPDATE books SET cover_url=NULL WHERE id=?',(book_id,))
+                    conn.execute("""UPDATE books SET cover_url=NULL,cover_source=NULL,
+                                   cover_status='missing',cover_confidence=NULL,
+                                   cover_checked_at=datetime('now') WHERE id=?""",(book_id,))
                 elif action=='metadata':
                     conn.execute('UPDATE books SET title=?,author=?,isbn=?,category=?,description=?,cover_url=?,publisher=?,published=?,pages=?,area=?,topic=?,book_index=? WHERE id=?',
                                  tuple(request.form.get(x,'') for x in ('title','author','isbn','category','description','cover_url','publisher','published'))+
@@ -544,7 +546,7 @@ def detail(book_id):
             flash('Gespeichert.','success')
         except (ValueError,sqlite3.IntegrityError) as e: flash(str(e),'danger')
         return redirect(url_for('.detail',book_id=book_id))
-    suggestions=cover_suggestions(book) if request.args.get('cover_search')=='1' and not book['cover_url'] else []
+    suggestions=expanded_cover_candidates(book) if request.args.get('cover_search')=='1' and not book['cover_url'] else []
     copies=conn.execute('SELECT * FROM book_copies WHERE book_id=? ORDER BY copy_number',(book_id,)).fetchall()
     terms={}
     for table,link,fk in [('tags','book_tags','tag_id'),('genres','book_genres','genre_id')]:
@@ -564,14 +566,21 @@ def detail(book_id):
     {% for t,label in [("genres","Genres"),("tags","Schlagwörter")] %}
     <form method="post" class="mb-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="{{t}}"><label class="form-label">{{label}} (durch Komma getrennt)</label><div class="input-group"><input class="form-control" name="names" value="{{terms[t]}}"><button class="btn btn-outline-secondary">Speichern</button></div></form>{% endfor %}
     </div><div class="col-lg-5"><h2 class="h5">Cover und Exemplare</h2>
-    {% if book.cover_url %}<img src="{{book.cover_url}}" alt="Cover" class="img-thumbnail mb-3" style="max-height:190px"><form method="post" class="mb-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="remove_cover"><button class="btn btn-outline-danger btn-sm">Falsches Cover entfernen</button></form>{% endif %}
-    {% if not book.cover_url %}<a class="btn btn-outline-primary btn-sm mb-3" href="{{url_for('catalog_extra.detail',book_id=book.id,cover_search=1)}}">Cover nach Titel und Autor suchen</a>{% endif %}
+    {% if book.cover_url %}<img src="{{book.cover_url}}" alt="Cover" class="img-thumbnail mb-2" style="max-height:190px">
+      <div class="small text-muted mb-2">{{book.cover_source or 'Vorhandenes Cover'}}{% if book.cover_confidence %} · {{book.cover_confidence}} %{% endif %}</div>
+      <form method="post" class="mb-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="remove_cover"><button class="btn btn-outline-danger btn-sm">Falsches Cover entfernen</button></form>{% endif %}
+    {% if not book.cover_url %}<a class="btn btn-outline-primary btn-sm mb-3" href="{{url_for('catalog_extra.detail',book_id=book.id,cover_search=1)}}">Erweiterte Cover-Suche starten</a>{% endif %}
+    <form method="post" enctype="multipart/form-data" action="{{url_for('catalog_extra.upload_cover',book_id=book.id)}}" class="mb-3">
+      <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
+      <label class="form-label small">Eigenes Cover (JPG, PNG oder WebP)</label>
+      <div class="input-group input-group-sm"><input class="form-control" type="file" name="cover_file" accept="image/jpeg,image/png,image/webp" required><button class="btn btn-outline-primary">Hochladen</button></div>
+    </form>
     {% if request.args.get('cover_search')=='1' and not book.cover_url %}
       <p class="small text-muted">Vorschläge sind nicht automatisch geprüft. Bitte Titel, Autor und Ausgabe mit dem echten Buch vergleichen.</p>
       {% if not suggestions %}<p>Keine passenden Cover-Vorschläge gefunden.</p>{% endif %}
       {% for item in suggestions %}
         <div class="border rounded p-2 mb-2"><img src="{{item.cover_url}}" alt="Vorgeschlagenes Cover" style="max-height:110px;max-width:85px;object-fit:contain">
-        <div class="small"><strong>{{item.title}}</strong><div>{{item.authors}}</div><div>{{item.source}} · ISBN {{item.isbn or 'unbekannt'}}</div></div>
+        <div class="small"><strong>{{item.title}}</strong><div>{{item.authors}}</div><div>{{item.source}} · ISBN {{item.isbn or 'unbekannt'}} · Treffer {{item.confidence}} %</div></div>
         <form method="post"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="choose_cover"><input type="hidden" name="cover_url" value="{{item.cover_url}}"><button class="btn btn-outline-primary btn-sm mt-2">Dieses Cover übernehmen</button></form></div>
       {% endfor %}
     {% endif %}
