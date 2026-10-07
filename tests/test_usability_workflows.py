@@ -201,7 +201,10 @@ class UsabilityWorkflowTests(unittest.TestCase):
     def test_structured_metadata_is_used(self):
         self.login(self.member_id,'user','Max Mitglied')
         with module.app.app_context():
-            book=module.get_db().execute("SELECT area,topic FROM books WHERE id=?",(self.book_id,)).fetchone()
+            from migrations.catalog import migrate as migrate_catalog
+            db=module.get_db()
+            migrate_catalog(db)
+            book=db.execute("SELECT area,topic FROM books WHERE id=?",(self.book_id,)).fetchone()
             self.assertEqual(book['area'],'Allgäu')
             self.assertEqual(book['topic'],'Bergwandern')
         result=self.client.get('/catalog?area=Allg%C3%A4u&topic=Bergwandern')
