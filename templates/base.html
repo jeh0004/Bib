@@ -82,15 +82,7 @@
         </li>
         {% endif %}
       </ul>
-      <ul class="navbar-nav">
-        <li class="nav-item d-flex align-items-center me-3">
-          <a href="{{ url_for('set_language', lang='en') }}"
-             class="text-decoration-none small {% if lang == 'en' %}text-white fw-bold{% else %}text-secondary{% endif %}">EN</a>
-          <span class="text-secondary mx-1 small">|</span>
-          <a href="{{ url_for('set_language', lang='de') }}"
-             class="text-decoration-none small {% if lang == 'de' %}text-white fw-bold{% else %}text-secondary{% endif %}">DE</a>
-        </li>
-        <li class="nav-item dropdown">
+      <ul class="navbar-nav">        <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
             <i class="bi bi-person-circle"></i> {{ session.full_name }}
             {% if session.role == 'admin' %}<span class="badge bg-warning text-dark ms-1">Admin</span>{% elif session.role == 'librarian' %}<span class="badge bg-primary ms-1">Bibliothekar</span>{% endif %}
