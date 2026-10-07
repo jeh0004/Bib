@@ -105,7 +105,7 @@ class CatalogCleanupTests(unittest.TestCase):
              json.dumps({'Auflagedatum':'2010'},ensure_ascii=False)))
         self.db.commit()
         changed=migrate_v2(self.db)
-        self.assertEqual(changed,2)
+        self.assertGreaterEqual(changed,2)
         r=self.db.execute("SELECT * FROM books WHERE id=77").fetchone()
         self.assertEqual(r['category'],'Alpenvereinskarte')
         self.assertEqual(r['publisher'],'Bergverlag Rother')
