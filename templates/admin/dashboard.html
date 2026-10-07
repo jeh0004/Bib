@@ -49,9 +49,9 @@
     </a>
   </div>
   <div class="col-md-4">
-    <a href="{{ url_for('admin_loans', status='reserved') }}" class="btn btn-outline-warning w-100 py-3">
+    <a href="{{ url_for('admin_loans') }}" class="btn btn-outline-warning w-100 py-3">
       <i class="bi bi-arrow-left-right d-block fs-3 mb-1"></i>
-      {{ t.dash_btn_reservations }}
+      Bibliothek öffnen
       {% if stats.pending_reservations > 0 %}
         <span class="badge bg-warning text-dark">{{ stats.pending_reservations }}</span>
       {% endif %}
@@ -83,7 +83,7 @@
             <span class="badge bg-primary">{{ t.status_borrowed }}</span>
           {% endif %}
         </td>
-        <td>{{ loan.reserved_at[:10] }}</td>
+        <td>{{ loan.reserved_at|de_date }}</td>
       </tr>
       {% endfor %}
     </tbody>
