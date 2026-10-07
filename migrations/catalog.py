@@ -16,6 +16,7 @@ def migrate(db: sqlite3.Connection):
         columns = {r[1] for r in db.execute('PRAGMA table_info(books)')}
         if 'cover_url' not in columns:
             db.execute('ALTER TABLE books ADD COLUMN cover_url TEXT')
+            columns.add('cover_url')
         for column, definition in [('publisher','TEXT'),('published','TEXT'),('pages','INTEGER'),
                                    ('area','TEXT'),('topic','TEXT'),('book_index','TEXT'),
                                    ('cover_source','TEXT'),('cover_status',"TEXT NOT NULL DEFAULT 'missing'"),
