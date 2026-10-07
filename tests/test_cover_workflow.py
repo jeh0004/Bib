@@ -79,6 +79,24 @@ class CoverWorkflowTests(unittest.TestCase):
             self.assertEqual(row['cover_status'],'reviewed')
             self.assertEqual(row['cover_source'],'Google Books')
 
+    def test_verified_isbn10_specialist_fallback_is_used(self):
+        from catalog_extra import specialist_cover_candidates
+        with module.app.app_context():
+            db=module.get_db()
+            db.execute("""UPDATE books SET title='Alpinführer Bündner Alpen 4 südliches Bergell Disgrazia',
+                          author='Meier',isbn='3859022520',publisher='SAC Verlag' WHERE id=?""",(self.book_id,))
+            db.commit()
+            book=db.execute("SELECT * FROM books WHERE id=?",(self.book_id,)).fetchone()
+        fake=dict(source='ZVAB',title='Clubführer Bündner Alpen 4',authors='Meier',
+                  cover_url='https://example.org/cover.jpg',isbn='3859022520',
+                  publisher='SAC',confidence=94,exact_isbn=True,query='Spezialquelle',
+                  auto_eligible=False,product_url='https://www.zvab.com/example')
+        with patch('catalog_extra._specialist_product',return_value=fake) as mocked:
+            result=specialist_cover_candidates(book)
+        self.assertTrue(result)
+        self.assertFalse(result[0]['auto_eligible'])
+        self.assertTrue(any('9783859022522' in call.args[0] for call in mocked.call_args_list))
+
     def test_specialist_exact_isbn_candidate_stays_manual_review(self):
         candidate=dict(source='Das Landkartenhaus',title='Kaiser Test',authors='Anna Autor',
                        cover_url='https://www.das-landkartenhaus.de/media/cover.jpg',
