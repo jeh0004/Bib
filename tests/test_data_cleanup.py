@@ -3,6 +3,7 @@ import sqlite3
 import unittest
 
 from migrations.data_cleanup import migrate, VERSION
+from migrations.data_cleanup_v2 import migrate as migrate_v2, VERSION as VERSION_V2
 
 
 class CatalogCleanupTests(unittest.TestCase):
@@ -88,6 +89,38 @@ class CatalogCleanupTests(unittest.TestCase):
         marker=self.db.execute("SELECT changed_rows FROM data_cleanup_migrations WHERE version=?",
                                (VERSION,)).fetchone()
         self.assertIsNotNone(marker)
+
+    def test_second_cleanup_consolidates_categories_and_metadata(self):
+        self.db.execute("""INSERT INTO books
+            (id,title,author,isbn,category,publisher,published,area,topic,book_index,description)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (77,'Tennegebirge Hochkönig Nr. 15 1:50000','Unbekannt','9783990447215',
+             'AV-Karte','Rother','2019','Gottard','Wandern, Bergsteigen','KNK 17',
+             json.dumps({'Auflagedatum':'2019'},ensure_ascii=False)))
+        self.db.execute("""INSERT INTO books
+            (id,title,author,isbn,category,publisher,published,area,topic,book_index,description)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (554,'Gottardweg Basel - Mailand','Unbekannt','9783763340002',
+             'Wanderführer alpin','SAC','2010','Gottard','Kompass Wanderbuch','FN 1',
+             json.dumps({'Auflagedatum':'2010'},ensure_ascii=False)))
+        self.db.commit()
+        changed=migrate_v2(self.db)
+        self.assertEqual(changed,2)
+        r=self.db.execute("SELECT * FROM books WHERE id=77").fetchone()
+        self.assertEqual(r['category'],'Alpenvereinskarte')
+        self.assertEqual(r['publisher'],'Bergverlag Rother')
+        self.assertEqual(r['area'],'Gotthard')
+        self.assertEqual(r['topic'],'Bergsteigen Wandern')
+        self.assertIn('Tennengebirge',r['title'])
+        r=self.db.execute("SELECT * FROM books WHERE id=554").fetchone()
+        self.assertEqual(r['category'],'Wanderführer')
+        self.assertEqual(r['publisher'],'SAC Verlag')
+        self.assertEqual(r['topic'],'Wandern')
+        self.assertIn('Gotthardweg',r['title'])
+        self.assertEqual(migrate_v2(self.db),0)
+        self.assertIsNotNone(self.db.execute(
+            "SELECT 1 FROM data_cleanup_migrations WHERE version=?",(VERSION_V2,)).fetchone())
+
 
 
 if __name__=='__main__':
