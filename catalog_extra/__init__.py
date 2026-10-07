@@ -218,6 +218,10 @@ def specialist_cover_candidates(book):
             ('ZVAB','https://www.zvab.com/9783859022522/Alpinf%C3%BChrer-B%C3%BCndner-Alpen-S%C3%BCdliches-Bergell-3859022520/plp'),
             ('Preigu','https://preigu.de/buecher/clubfuehrer-buendner-alpen-4/101448054'),
         ],
+        '3859022520': [
+            ('ZVAB','https://www.zvab.com/9783859022522/Alpinf%C3%BChrer-B%C3%BCndner-Alpen-S%C3%BCdliches-Bergell-3859022520/plp'),
+            ('Preigu','https://preigu.de/buecher/clubfuehrer-buendner-alpen-4/101448054'),
+        ],
         '9783859022126': [
             ('ZVAB','https://www.zvab.com/9783859022126/BUENDNER-ALPEN-5-BERNINA-GRUPPE-ING-3859022121/plp'),
             ('Freytag & Berndt','https://www.freytagberndt.com/en/clubfuhrer-bundner-alpen-5.html'),
