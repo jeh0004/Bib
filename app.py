@@ -151,6 +151,20 @@ def inject_settings():
         return {'site_settings': None, 'primary_rgb': '13,110,253', 't': t, 'lang': lang}
 
 
+@app.template_filter('de_date')
+def de_date(value):
+    """Render ISO dates/timestamps as DD.MM.YYYY without changing stored values."""
+    if not value:
+        return '–'
+    try:
+        return datetime.fromisoformat(str(value).replace('Z','+00:00')).strftime('%d.%m.%Y')
+    except (ValueError, TypeError):
+        try:
+            return datetime.strptime(str(value)[:10], '%Y-%m-%d').strftime('%d.%m.%Y')
+        except (ValueError, TypeError):
+            return str(value)
+
+
 def flash_msg(key, category='info', **kwargs):
     """Flash a translated message looked up from STRINGS by key."""
     lang = session.get('lang', 'de')
@@ -494,6 +508,8 @@ def login():
             if user['must_change_password']:
                 flash_msg('flash_login_must_change', 'warning')
                 return redirect(url_for('change_password'))
+            if user['role'] == 'librarian':
+                return redirect(url_for('admin_loans'))
             return redirect(url_for('catalog'))
 
         _record_failed_attempt(username)
@@ -633,6 +649,8 @@ def change_password():
 @app.route('/')
 @login_required
 def index():
+    if session.get('role') == 'librarian':
+        return redirect(url_for('admin_loans'))
     return redirect(url_for('catalog'))
 
 
@@ -641,8 +659,16 @@ def index():
 def catalog():
     db = get_db()
     q = request.args.get('q', '').strip()
+    category = request.args.get('category', '').strip()
+    author = request.args.get('author', '').strip()
+    area = request.args.get('area', '').strip()
+    topic = request.args.get('topic', '').strip()
+    available_only = request.args.get('available') == '1'
     term = f"%{q}%"
-    books = db.execute("""
+    area_term = f"%{area}%"
+    topic_term = f"%{topic}%"
+
+    base = """
         SELECT b.*,
                MAX(0, MIN(b.total_copies,
                    (SELECT COUNT(*) FROM book_copies c
@@ -650,19 +676,35 @@ def catalog():
                    - (SELECT COUNT(*) FROM loans l WHERE l.book_id=b.id
                       AND l.status IN ('reserved','borrowed'))) AS available
         FROM books b
-        WHERE b.title LIKE ? OR b.author LIKE ? OR b.category LIKE ?
-           OR b.isbn LIKE ? OR EXISTS (
+        WHERE (b.title LIKE ? OR b.author LIKE ? OR b.category LIKE ?
+           OR b.isbn LIKE ? OR b.description LIKE ? OR EXISTS (
                SELECT 1 FROM book_copies c WHERE c.book_id=b.id
                AND (c.barcode LIKE ? OR c.inventory_code LIKE ?
                     OR c.location LIKE ? OR c.shelf LIKE ?))
            OR EXISTS (SELECT 1 FROM book_tags bt JOIN tags t ON t.id=bt.tag_id
                       WHERE bt.book_id=b.id AND t.name LIKE ?)
            OR EXISTS (SELECT 1 FROM book_genres bg JOIN genres ge ON ge.id=bg.genre_id
-                      WHERE bg.book_id=b.id AND ge.name LIKE ?)
-        ORDER BY b.title
-    """, (term,)*10).fetchall()
-    return render_template('catalog.html', books=books, q=q)
-
+                      WHERE bg.book_id=b.id AND ge.name LIKE ?))
+          AND (?='' OR b.category=?)
+          AND (?='' OR b.author LIKE ?)
+          AND (?='' OR b.description LIKE ?)
+          AND (?='' OR b.description LIKE ?)
+    """
+    params = [term]*11 + [category, category, author, f"%{author}%",
+                          area, area_term, topic, topic_term]
+    books = db.execute("SELECT * FROM (" + base + ") x " +
+                       ("WHERE available > 0 " if available_only else "") +
+                       "ORDER BY title", params).fetchall()
+    categories = [r[0] for r in db.execute(
+        "SELECT DISTINCT category FROM books WHERE category IS NOT NULL AND TRIM(category)<>'' ORDER BY category"
+    ).fetchall()]
+    authors = [r[0] for r in db.execute(
+        "SELECT DISTINCT author FROM books WHERE author IS NOT NULL AND TRIM(author)<>'' AND author<>'Unbekannt' ORDER BY author LIMIT 300"
+    ).fetchall()]
+    return render_template('catalog.html', books=books, q=q, category=category,
+                           author=author, area=area, topic=topic,
+                           available_only=available_only, categories=categories,
+                           authors=authors, result_count=len(books))
 
 @app.route('/book/<int:book_id>')
 @login_required
@@ -776,7 +818,7 @@ def return_book(book_id):
 def my_loans():
     db = get_db()
     active = db.execute("""
-        SELECT l.*, b.title, b.author
+        SELECT l.*, b.title, b.author, b.cover_url
         FROM loans l JOIN books b ON l.book_id = b.id
         WHERE l.user_id = ? AND l.status IN ('reserved','borrowed')
         ORDER BY l.reserved_at DESC
@@ -981,36 +1023,58 @@ def admin_statistics():
 def admin_loans():
     db = get_db()
     status_filter = request.args.get('status', '')
-    if status_filter in ('reserved', 'borrowed', 'returned'):
-        loans = db.execute("""
-            SELECT l.*, b.title, u.full_name, u.username, u.email
-            FROM loans l
-            JOIN books b ON l.book_id = b.id
-            JOIN users u ON l.user_id = u.id
-            WHERE l.status = ?
-            ORDER BY l.reserved_at DESC
-        """, (status_filter,)).fetchall()
-    else:
-        loans = db.execute("""
-            SELECT l.*, b.title, u.full_name, u.username, u.email
-            FROM loans l
-            JOIN books b ON l.book_id = b.id
-            JOIN users u ON l.user_id = u.id
-            ORDER BY l.reserved_at DESC
-            LIMIT 100
-        """).fetchall()
+    search = request.args.get('q', '').strip()
+    where = []
+    params = []
+    if status_filter in ('reserved','borrowed','returned'):
+        where.append('l.status=?'); params.append(status_filter)
+    if search:
+        where.append("(b.title LIKE ? OR u.full_name LIKE ? OR u.username LIKE ? OR c.inventory_code LIKE ? OR c.barcode LIKE ?)")
+        params.extend([f"%{search}%"]*5)
+    sql = """
+        SELECT l.*, b.title, b.author, u.full_name, u.username, u.email,
+               c.inventory_code, c.barcode
+        FROM loans l
+        JOIN books b ON l.book_id=b.id
+        JOIN users u ON l.user_id=u.id
+        LEFT JOIN book_copies c ON c.id=l.copy_id
+    """
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY CASE l.status WHEN 'reserved' THEN 0 WHEN 'borrowed' THEN 1 ELSE 2 END, l.reserved_at DESC LIMIT 200"
+    loans = db.execute(sql, params).fetchall()
+
+    stats = db.execute("""
+        SELECT
+          (SELECT COUNT(*) FROM loans WHERE status='reserved') AS reserved,
+          (SELECT COUNT(*) FROM loans WHERE status='borrowed' AND renewal_requested_at IS NOT NULL) AS renewals,
+          (SELECT COUNT(*) FROM loans WHERE status='borrowed') AS borrowed,
+          (SELECT COUNT(*) FROM loans WHERE status='borrowed' AND due_date<date('now')) AS overdue
+    """).fetchone()
+    reservations = db.execute("""
+        SELECT l.*,b.title,u.full_name,u.username,u.email
+        FROM loans l JOIN books b ON b.id=l.book_id JOIN users u ON u.id=l.user_id
+        WHERE l.status='reserved' ORDER BY l.reserved_at LIMIT 12
+    """).fetchall()
+    renewal_requests = db.execute("""
+        SELECT l.*,b.title,u.full_name,c.inventory_code
+        FROM loans l JOIN books b ON b.id=l.book_id JOIN users u ON u.id=l.user_id
+        LEFT JOIN book_copies c ON c.id=l.copy_id
+        WHERE l.status='borrowed' AND l.renewal_requested_at IS NOT NULL
+        ORDER BY l.renewal_requested_at LIMIT 12
+    """).fetchall()
     reminders = db.execute("""
-        SELECT l.id, b.title, u.full_name, u.email, l.due_date
-        FROM loans l JOIN books b ON b.id=l.book_id
-        JOIN users u ON u.id=l.user_id
-        WHERE l.status='borrowed'
-          AND l.due_date IS NOT NULL
-          AND l.due_date <= date('now', '+3 days')
-        ORDER BY l.due_date, l.id
+        SELECT l.id,b.title,u.full_name,u.email,l.due_date,c.inventory_code
+        FROM loans l JOIN books b ON b.id=l.book_id JOIN users u ON u.id=l.user_id
+        LEFT JOIN book_copies c ON c.id=l.copy_id
+        WHERE l.status='borrowed' AND l.due_date IS NOT NULL
+          AND l.due_date <= date('now','+3 days')
+        ORDER BY l.due_date,l.id
     """).fetchall()
     now = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    return render_template('admin/loans.html', loans=loans, status_filter=status_filter, now=now, reminders=reminders)
-
+    return render_template('admin/loans.html', loans=loans, status_filter=status_filter,
+                           q=search, now=now, reminders=reminders, stats=stats,
+                           reservations=reservations, renewal_requests=renewal_requests)
 
 @app.route('/admin/loans/<int:loan_id>/confirm', methods=['POST'])
 @librarian_required
