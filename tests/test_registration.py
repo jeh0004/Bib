@@ -10,11 +10,18 @@ class RegistrationTests(unittest.TestCase):
         cls.tmp=tempfile.TemporaryDirectory()
         os.environ['DATABASE']=os.path.join(cls.tmp.name,'db.sqlite')
         os.environ['UPLOAD_DIR']=os.path.join(cls.tmp.name,'uploads')
-        from app import app, init_db
-        cls.app=app
-        init_db()
+        import app as module
+        cls.module=module
+        cls.old_database=module.DATABASE
+        cls.old_upload_dir=module.UPLOAD_DIR
+        module.DATABASE=os.environ['DATABASE']
+        module.UPLOAD_DIR=os.environ['UPLOAD_DIR']
+        cls.app=module.app
+        module.init_db()
     @classmethod
     def tearDownClass(cls):
+        cls.module.DATABASE=cls.old_database
+        cls.module.UPLOAD_DIR=cls.old_upload_dir
         cls.tmp.cleanup()
     def test_registration_requires_admin_approval(self):
         from app import get_db
