@@ -59,7 +59,7 @@ class LibrarianWorkflowTests(unittest.TestCase):
 
         self.login(self.librarian_id,'librarian')
         self.assertEqual(self.client.get('/admin/loans').status_code,200)
-        self.assertEqual(self.client.get('/admin/loans-extra/').status_code,200)
+        self.assertEqual(self.client.get('/admin/loans-extra/').status_code,302)
         self.assertEqual(self.client.get('/admin/users').status_code,403)
         self.assertEqual(self.post('/admin/loans-extra/settings',days='5',max='4').status_code,403)
         loan = self.state()
