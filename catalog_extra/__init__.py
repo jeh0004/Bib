@@ -220,10 +220,10 @@ def add():
         title=request.form.get('title','').strip();author=request.form.get('author','').strip()
         if title and author:
             with conn:
-                cur=conn.execute('INSERT INTO books(title,author,isbn,category,description,total_copies,cover_url,publisher,published,pages) VALUES(?,?,?,?,?,0,?,?,?,?)',(title,author,request.form.get('isbn',''),request.form.get('category',''),request.form.get('description',''),request.form.get('cover_url',''),request.form.get('publisher',''),request.form.get('published',''),request.form.get('pages') or None))
+                cur=conn.execute('INSERT INTO books(title,author,isbn,category,description,total_copies,cover_url,publisher,published,pages,area,topic,book_index) VALUES(?,?,?,?,?,0,?,?,?,?,?,?,?)',(title,author,request.form.get('isbn',''),request.form.get('category',''),request.form.get('description',''),request.form.get('cover_url',''),request.form.get('publisher',''),request.form.get('published',''),request.form.get('pages') or None,request.form.get('area',''),request.form.get('topic',''),request.form.get('book_index','')))
             return redirect(url_for('.detail',book_id=cur.lastrowid))
         flash('Titel und Autor sind erforderlich.','danger')
-    return view('<h1>Buch anlegen</h1><form method="get"><input name="isbn" placeholder="ISBN"><button>ISBN suchen</button></form><form method="post"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}">{% for field in ["title","author","isbn","category","cover_url","description","publisher","published","pages"] %}<p><label>{{field}} <input name="{{field}}" value="{{meta.get(field,"")}}"></label></p>{% endfor %}<button>Speichern</button></form>',meta=meta)
+    return view('<h1>Buch anlegen</h1><form method="get"><input name="isbn" placeholder="ISBN"><button>ISBN suchen</button></form><form method="post"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}">{% for field in ["title","author","isbn","category","cover_url","description","publisher","published","pages","area","topic","book_index"] %}<p><label>{{field}} <input name="{{field}}" value="{{meta.get(field,"")}}"></label></p>{% endfor %}<button>Speichern</button></form>',meta=meta)
 @bp.route('/<int:book_id>',methods=['GET','POST'])
 def detail(book_id):
     conn=db();book=conn.execute('SELECT * FROM books WHERE id=?',(book_id,)).fetchone()
@@ -265,7 +265,10 @@ def detail(book_id):
                 elif action=='remove_cover':
                     conn.execute('UPDATE books SET cover_url=NULL WHERE id=?',(book_id,))
                 elif action=='metadata':
-                    conn.execute('UPDATE books SET title=?,author=?,isbn=?,category=?,description=?,cover_url=? WHERE id=?',tuple(request.form.get(x,'') for x in ('title','author','isbn','category','description','cover_url'))+(book_id,))
+                    conn.execute('UPDATE books SET title=?,author=?,isbn=?,category=?,description=?,cover_url=?,publisher=?,published=?,pages=?,area=?,topic=?,book_index=? WHERE id=?',
+                                 tuple(request.form.get(x,'') for x in ('title','author','isbn','category','description','cover_url','publisher','published'))+
+                                 ((int(request.form.get('pages')) if request.form.get('pages','').isdigit() else None),
+                                  request.form.get('area',''),request.form.get('topic',''),request.form.get('book_index',''),book_id))
                 else: abort(400)
             flash('Gespeichert.','success')
         except (ValueError,sqlite3.IntegrityError) as e: flash(str(e),'danger')
@@ -281,7 +284,7 @@ def detail(book_id):
     <div class="row g-4"><div class="col-lg-7">
     <h2 class="h5">Buchinformationen</h2><p class="text-muted small">Ergänze eine ISBN und speichere sie. Danach kannst du die fehlenden Angaben automatisch laden.</p>
     <form method="post" class="mb-3"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><input type="hidden" name="action" value="metadata">
-    {% for f,label in [("title","Titel"),("author","Autor"),("isbn","ISBN"),("category","Kategorie"),("description","Beschreibung"),("cover_url","Cover-URL")] %}
+    {% for f,label in [("title","Titel"),("author","Autor"),("isbn","ISBN"),("category","Kategorie"),("publisher","Verlag"),("published","Erscheinungsjahr / Auflage"),("pages","Seiten"),("area","Gebiet"),("topic","Thema"),("book_index","Buchindex"),("description","Beschreibung"),("cover_url","Cover-URL")] %}
     <div class="mb-3"><label class="form-label" for="field-{{f}}">{{label}}</label>
     {% if f=="description" %}<textarea class="form-control" id="field-{{f}}" name="{{f}}" rows="4">{{book[f] or ''}}</textarea>
     {% else %}<input class="form-control" id="field-{{f}}" name="{{f}}" value="{{book[f] or ''}}">{% endif %}</div>{% endfor %}
