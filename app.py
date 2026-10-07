@@ -135,8 +135,9 @@ def get_settings(db):
 
 @app.context_processor
 def inject_settings():
-    lang = session.get('lang', 'de')
-    t = STRINGS.get(lang, STRINGS['en'])
+    lang = 'de'
+    session['lang'] = 'de'
+    t = STRINGS['de']
     try:
         db = get_db()
         s = get_settings(db)
@@ -167,8 +168,8 @@ def de_date(value):
 
 def flash_msg(key, category='info', **kwargs):
     """Flash a translated message looked up from STRINGS by key."""
-    lang = session.get('lang', 'de')
-    strings = STRINGS.get(lang, STRINGS['en'])
+    lang = 'de'
+    strings = STRINGS['de']
     msg = strings.get(key, STRINGS['en'].get(key, key))
     if kwargs:
         msg = msg.format(**kwargs)
@@ -221,8 +222,8 @@ def init_db():
 # ---------------------------------------------------------------------------
 
 def validate_password(pw):
-    lang = session.get('lang', 'de') if session else 'de'
-    t = STRINGS.get(lang, STRINGS['en'])
+    lang = 'de'
+    t = STRINGS['de']
     errors = []
     if len(pw) < 12:
         errors.append(t['pw_req_length'] + '.')
