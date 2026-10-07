@@ -60,11 +60,15 @@ def migrate(db: sqlite3.Connection):
             candidate_title TEXT,
             candidate_author TEXT,
             candidate_isbn TEXT,
+            source_url TEXT,
             confidence INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(book_id,cover_url)
         )""")
+        candidate_columns={r[1] for r in db.execute('PRAGMA table_info(cover_candidates)')}
+        if 'source_url' not in candidate_columns:
+            db.execute('ALTER TABLE cover_candidates ADD COLUMN source_url TEXT')
         db.execute("CREATE INDEX IF NOT EXISTS idx_cover_candidates_book_status ON cover_candidates(book_id,status)")
         if 'cover_url' in columns:
             db.execute("""UPDATE books
