@@ -11,6 +11,8 @@ def migrate(db):
             db.execute('ALTER TABLE loans ADD COLUMN renewal_count INTEGER NOT NULL DEFAULT 0')
         if 'renewal_requested_at' not in cols:
             db.execute('ALTER TABLE loans ADD COLUMN renewal_requested_at TEXT')
+        if 'reservation_expires_at' not in cols:
+            db.execute('ALTER TABLE loans ADD COLUMN reservation_expires_at TEXT')
         db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_loan_per_copy
             ON loans(copy_id) WHERE copy_id IS NOT NULL AND status IN ('reserved','borrowed')''')
         db.execute('CREATE INDEX IF NOT EXISTS idx_loans_due ON loans(status,due_date)')
@@ -23,3 +25,15 @@ def migrate(db):
             UNIQUE(book_id,user_id)
         )""")
         db.execute("CREATE INDEX IF NOT EXISTS idx_waitlist_order ON loan_waitlist(book_id,requested_at,id)")
+
+        db.execute("""CREATE TABLE IF NOT EXISTS circulation_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            loan_id INTEGER,
+            book_id INTEGER,
+            user_id INTEGER,
+            staff_user_id INTEGER,
+            action TEXT NOT NULL,
+            details TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )""")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_circulation_audit_created ON circulation_audit(created_at,id)")
