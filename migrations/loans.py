@@ -4,8 +4,12 @@ def migrate(db):
         db.execute('''CREATE TABLE IF NOT EXISTS loan_policy (
             id INTEGER PRIMARY KEY CHECK(id=1), loan_days INTEGER NOT NULL DEFAULT 28
             CHECK(loan_days BETWEEN 1 AND 365), max_renewals INTEGER NOT NULL DEFAULT 2
-            CHECK(max_renewals BETWEEN 0 AND 20))''')
+            CHECK(max_renewals BETWEEN 0 AND 20), reservation_days INTEGER NOT NULL DEFAULT 7
+            CHECK(reservation_days BETWEEN 1 AND 60))''')
         db.execute('INSERT OR IGNORE INTO loan_policy(id) VALUES(1)')
+        policy_cols={r[1] for r in db.execute('PRAGMA table_info(loan_policy)')}
+        if 'reservation_days' not in policy_cols:
+            db.execute('ALTER TABLE loan_policy ADD COLUMN reservation_days INTEGER NOT NULL DEFAULT 7')
         cols={r[1] for r in db.execute('PRAGMA table_info(loans)')}
         if 'renewal_count' not in cols:
             db.execute('ALTER TABLE loans ADD COLUMN renewal_count INTEGER NOT NULL DEFAULT 0')
