@@ -57,28 +57,28 @@
       {% else %}<p class="text-secondary fw-semibold mb-3"><i class="bi bi-clock me-1"></i>Aktuell kein Exemplar frei</p>{% endif %}
       {% if my_loan %}
         {% if my_loan.status == 'reserved' %}
-          <div class="alert alert-success"><strong>Für dich reserviert</strong><p class="mb-0 mt-1">Deine Reservierung ist eingegangen. Die Ausgabe erfolgt durch einen Bibliothekar.</p></div>
+          <div class="alert alert-success"><strong>Reserviert – bitte in der Bibliothek abholen</strong><p class="mb-0 mt-1">Deine Reservierung ist eingegangen. Ein Bibliothekar verbucht die Ausgabe bei der Übergabe.</p></div>
         {% else %}
-          <div class="alert alert-info"><strong>Du hast dieses Buch ausgeliehen.</strong>{% if my_loan.due_date %}<p class="mb-0 mt-1">Rückgabe bis {{my_loan.due_date}}</p>{% endif %}</div>
+          <div class="alert alert-info"><strong>Du hast dieses Buch ausgeliehen.</strong>{% if my_loan.due_date %}<p class="mb-0 mt-1">Rückgabe bis {{my_loan.due_date|de_date}}</p>{% endif %}</div>
         {% endif %}
         <a href="{{url_for('my_loans')}}" class="btn btn-primary w-100">Meine Ausleihen ansehen</a>
       {% elif waitlist_position %}
         <div class="alert alert-info"><strong>Du stehst auf der Warteliste.</strong><p class="mb-0 mt-1">Dein Platz: {{waitlist_position}} von {{waitlist_count}}.</p></div>
-        <p class="small text-muted">Sobald ein Exemplar frei wird, kannst du es entsprechend der Reihenfolge reservieren.</p>
+        <p class="small text-muted">Sobald du an der Reihe bist und ein Exemplar frei ist, kannst du es reservieren.</p>
         {% if can_reserve %}<form method="post" action="{{url_for('reserve_book',book_id=book.id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-primary w-100">Jetzt reservieren</button></form>{% endif %}
       {% elif can_reserve %}
         <p class="text-muted small">Reserviere das Buch mit einem Klick. Ein Bibliothekar bestätigt die Ausgabe vor Ort.</p>
         <form method="post" action="{{url_for('reserve_book',book_id=book.id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-primary btn-lg w-100">Buch reservieren</button></form>
       {% else %}
-        <p class="text-warning-emphasis fw-semibold">{% if available == 0 %}Zurzeit alle Exemplare vergeben{% else %}Andere Mitglieder warten bereits{% endif %}</p>
-        <p class="text-muted small">Du kannst dich unverbindlich auf die Warteliste setzen. Es werden keine automatischen Benachrichtigungen verschickt.</p>
+        <p class="text-warning-emphasis fw-semibold">{% if available == 0 %}Dieses Buch ist derzeit vergeben{% else %}Andere Mitglieder warten bereits{% endif %}</p>
+        <p class="text-muted small">Du kannst dich auf die Warteliste setzen. Deinen Platz siehst du anschließend hier. Es werden derzeit keine automatischen Benachrichtigungen verschickt.</p>
         <form method="post" action="{{url_for('join_waitlist',book_id=book.id)}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-outline-primary w-100">Auf die Warteliste</button></form>
       {% endif %}
     </div></div>
-    {% if session.role == 'admin' %}
+    {% if session.role in ['admin','librarian'] %}
     <div class="d-grid gap-2">
-      <a class="btn btn-outline-secondary" href="{{url_for('catalog_extra.detail',book_id=book.id)}}">Buchdaten und Exemplare verwalten</a>
-      <a class="btn btn-outline-secondary" href="{{url_for('admin_loans')}}">Reservierungen bearbeiten</a>
+      {% if session.role == 'admin' %}<a class="btn btn-outline-secondary" href="{{url_for('catalog_extra.detail',book_id=book.id)}}">Buchdaten und Exemplare verwalten</a>{% endif %}
+      <a class="btn btn-outline-secondary" href="{{url_for('admin_loans')}}">Bibliothek · Ausleihe</a>
     </div>{% endif %}
   </aside>
 </div>
