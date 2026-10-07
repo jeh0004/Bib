@@ -198,8 +198,10 @@ def init_db():
             db.executescript(f.read().decode())
         from migrations.catalog import migrate as migrate_catalog
         from migrations.loans import migrate as migrate_loans
+        from migrations.data_cleanup import migrate as migrate_data_cleanup
         migrate_catalog(db)
         migrate_loans(db)
+        migrate_data_cleanup(db)
         _add_column_if_missing(db, 'users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0')
         _add_column_if_missing(db, 'loans', 'renewal_requested_at', 'TEXT')
         # Ensure settings singleton row exists
