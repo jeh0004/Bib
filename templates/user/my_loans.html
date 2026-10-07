@@ -25,12 +25,17 @@
             {% if loan.status == 'reserved' %}
               <span class="badge bg-warning text-dark mb-2">Reserviert</span>
               <div class="workflow-step active mt-2"><span class="workflow-dot"></span><strong>Reservierung eingegangen</strong><div class="small text-muted">{{loan.reserved_at|de_date}}</div></div>
-              <div class="workflow-step"><span class="workflow-dot"></span><strong>Nächster Schritt: Abholung</strong><div class="small text-muted">Bitte in der Bibliothek abholen. Ein Bibliothekar verbucht die Ausgabe.</div></div>
+              <div class="workflow-step"><span class="workflow-dot"></span><strong>Nächster Schritt: Abholung</strong><div class="small text-muted">Bitte in der Bibliothek abholen. Ein Bibliothekar verbucht die Ausgabe.{% if loan.reservation_expires_at %} Abholfrist: <strong>{{loan.reservation_expires_at|de_date}}</strong>.{% endif %}</div></div>
             {% else %}
               <span class="badge bg-primary mb-2">Ausgeliehen</span>
               <div class="mb-2"><strong>Rückgabe bis:</strong> {{loan.due_date|de_date}}</div>
+              {% if loan.overdue_days %}
+                <div class="alert alert-danger py-2 mb-2"><strong>Überfällig seit {{loan.overdue_days}} {% if loan.overdue_days == 1 %}Tag{% else %}Tagen{% endif %}.</strong> Bitte möglichst bald in der Bibliothek zurückgeben.</div>
+              {% endif %}
               {% if loan.renewal_requested_at %}
                 <div class="alert alert-warning py-2 mb-2"><i class="bi bi-hourglass-split"></i> Verlängerung beantragt – wartet auf Bibliothek.</div>
+              {% elif loan.renewal_block_reason %}
+                <div class="alert alert-secondary py-2 mb-2"><strong>Verlängerung derzeit nicht möglich.</strong><br><span class="small">{{loan.renewal_block_reason}}</span></div>
               {% else %}
                 <form method="post" action="{{url_for('request_renewal',loan_id=loan.id)}}" class="mb-2">
                   <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
