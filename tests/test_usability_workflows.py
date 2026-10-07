@@ -10,7 +10,9 @@ class UsabilityWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.old_database=module.DATABASE
+        self.old_upload_dir=module.UPLOAD_DIR
         module.DATABASE=os.path.join(self.tmp.name,'test.db')
+        module.UPLOAD_DIR=os.path.join(self.tmp.name,'uploads')
         module.init_db()
         with module.app.app_context():
             db=module.get_db()
@@ -34,6 +36,7 @@ class UsabilityWorkflowTests(unittest.TestCase):
 
     def tearDown(self):
         module.DATABASE=self.old_database
+        module.UPLOAD_DIR=self.old_upload_dir
         self.tmp.cleanup()
 
     def login(self,user_id,role,name='Test'):
