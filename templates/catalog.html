@@ -1,9 +1,9 @@
 {% extends 'base.html' %}
-{% block title %}{{ t.catalog_title }} – Vereinsbibliothek{% endblock %}
+{% block title %}Bücherkatalog – Vereinsbibliothek{% endblock %}
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
   <div>
-    <h1 class="h3 mb-1"><i class="bi bi-search"></i> {{ t.catalog_title }}</h1>
+    <h1 class="h3 mb-1"><i class="bi bi-search"></i> Bücherkatalog</h1>
     <div class="text-muted">{{ result_count }} {% if result_count == 1 %}Medium gefunden{% else %}Medien gefunden{% endif %}</div>
   </div>
 </div>
@@ -29,21 +29,32 @@
       </div>
       <div class="col-12 col-sm-6 col-lg-3">
         <label class="form-label">Gebiet</label>
-        <input name="area" class="form-control" value="{{area}}" placeholder="z. B. Allgäu">
+        <input name="area" class="form-control" list="areas" value="{{area}}" placeholder="z. B. Allgäu">
+        <datalist id="areas">{% for item in areas %}<option value="{{item}}">{% endfor %}</datalist>
       </div>
       <div class="col-12 col-sm-6 col-lg-3">
         <label class="form-label">Thema</label>
-        <input name="topic" class="form-control" value="{{topic}}" placeholder="z. B. Wandern">
+        <input name="topic" class="form-control" list="topics" value="{{topic}}" placeholder="z. B. Wandern">
+        <datalist id="topics">{% for item in topics %}<option value="{{item}}">{% endfor %}</datalist>
       </div>
-      <div class="col-12 col-lg-3 d-flex align-items-end">
+      <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label">Sortierung</label>
+        <select name="sort" class="form-select">
+          <option value="title" {% if sort=='title' %}selected{% endif %}>Titel A–Z</option>
+          <option value="author" {% if sort=='author' %}selected{% endif %}>Autor A–Z</option>
+          <option value="year" {% if sort=='year' %}selected{% endif %}>Neueste zuerst</option>
+          <option value="available" {% if sort=='available' %}selected{% endif %}>Verfügbarkeit</option>
+        </select>
+      </div>
+      <div class="col-12 col-sm-6 col-lg-3 d-flex align-items-end">
         <div class="form-check mb-2">
           <input class="form-check-input" type="checkbox" name="available" value="1" id="availableOnly" {% if available_only %}checked{% endif %}>
           <label class="form-check-label" for="availableOnly">Nur verfügbare Medien</label>
         </div>
       </div>
-      <div class="col-12 col-lg-3 d-flex align-items-end gap-2">
-        <button type="submit" class="btn btn-primary flex-grow-1"><i class="bi bi-search"></i> Suchen</button>
-        {% if q or category or author or area or topic or available_only %}<a href="{{url_for('catalog')}}" class="btn btn-outline-secondary">Zurücksetzen</a>{% endif %}
+      <div class="col-12 d-flex gap-2">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Suchen</button>
+        {% if q or category or author or area or topic or available_only or sort!='title' %}<a href="{{url_for('catalog')}}" class="btn btn-outline-secondary">Zurücksetzen</a>{% endif %}
       </div>
     </div>
   </div>
@@ -53,7 +64,7 @@
 <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-4 g-4">
 {% for book in books %}
   <div class="col">
-    <a href="{{ url_for('book_detail', book_id=book.id) }}" class="card h-100 shadow-sm text-decoration-none text-body catalog-card">
+    <a href="{{ url_for('book_detail', book_id=book.id, back=request.full_path) }}" class="card h-100 shadow-sm text-decoration-none text-body catalog-card">
       <div class="catalog-cover bg-light">
         {% if book.cover_url %}
           <img src="{{ book.cover_url }}" alt="Cover von {{ book.title }}" loading="lazy">
@@ -66,6 +77,7 @@
         <div class="small text-muted mb-2">{{ book.author if book.author and book.author != 'Unbekannt' else 'Autor nicht angegeben' }}</div>
         <div class="d-flex flex-wrap gap-1">
           {% if book.category %}<span class="badge text-bg-light border">{{book.category}}</span>{% endif %}
+          {% if book.area %}<span class="badge text-bg-light border">{{book.area}}</span>{% endif %}
           {% if book.published %}<span class="badge text-bg-light border">{{book.published}}</span>{% endif %}
         </div>
       </div>
@@ -80,6 +92,20 @@
   </div>
 {% endfor %}
 </div>
+
+{% if pages > 1 %}
+<nav class="mt-4" aria-label="Katalogseiten">
+  <ul class="pagination justify-content-center flex-wrap">
+    {% set common = dict(q=q,category=category,author=author,area=area,topic=topic,sort=sort) %}
+    {% if available_only %}{% set _ = common.update({'available':'1'}) %}{% endif %}
+    <li class="page-item {{'disabled' if page<=1}}"><a class="page-link" href="{{url_for('catalog',page=page-1,**common)}}">Zurück</a></li>
+    {% for p in range([1,page-2]|max,[pages,page+2]|min + 1) %}
+      <li class="page-item {{'active' if p==page}}"><a class="page-link" href="{{url_for('catalog',page=p,**common)}}">{{p}}</a></li>
+    {% endfor %}
+    <li class="page-item {{'disabled' if page>=pages}}"><a class="page-link" href="{{url_for('catalog',page=page+1,**common)}}">Weiter</a></li>
+  </ul>
+</nav>
+{% endif %}
 {% else %}
 <div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-5">
   <i class="bi bi-journal-x display-4"></i>
