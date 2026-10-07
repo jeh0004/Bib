@@ -327,13 +327,15 @@ def _save_candidates(conn,book,candidates):
     conn.execute("UPDATE cover_candidates SET status='stale' WHERE book_id=? AND status='pending'",(book['id'],))
     for item in candidates:
         conn.execute("""INSERT INTO cover_candidates
-            (book_id,cover_url,source,candidate_title,candidate_author,candidate_isbn,confidence,status)
-            VALUES(?,?,?,?,?,?,?,'pending')
+            (book_id,cover_url,source,candidate_title,candidate_author,candidate_isbn,source_url,confidence,status)
+            VALUES(?,?,?,?,?,?,?,?,'pending')
             ON CONFLICT(book_id,cover_url) DO UPDATE SET
               source=excluded.source,candidate_title=excluded.candidate_title,
               candidate_author=excluded.candidate_author,candidate_isbn=excluded.candidate_isbn,
-              confidence=excluded.confidence,status='pending',created_at=datetime('now')""",
-            (book['id'],item['cover_url'],item['source'],item['title'],item['authors'],item['isbn'],item['confidence']))
+              source_url=excluded.source_url,confidence=excluded.confidence,
+              status='pending',created_at=datetime('now')""",
+            (book['id'],item['cover_url'],item['source'],item['title'],item['authors'],item['isbn'],
+             item.get('product_url',''),item['confidence']))
 
 def _apply_cover(conn,book_id,url,source,status,confidence):
     conn.execute("""UPDATE books SET cover_url=?,cover_source=?,cover_status=?,
