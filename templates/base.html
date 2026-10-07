@@ -37,7 +37,7 @@
 {% if session.user_id %}
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container">
-    <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="{{ url_for('catalog') }}">
+    <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="{{ url_for('admin_loans') if session.role == 'librarian' else url_for('catalog') }}">
       {% if site_settings and site_settings.logo_filename %}
         <img src="{{ url_for('serve_upload', filename=site_settings.logo_filename) }}"
              alt="Logo" style="height:32px;width:auto;object-fit:contain;">
@@ -73,10 +73,8 @@
              href="#" data-bs-toggle="dropdown"><i class="bi bi-gear"></i> {{ t.nav_admin }}</a>
           <ul class="dropdown-menu">
             <li><a class="dropdown-item" href="{{ url_for('admin_dashboard') }}"><i class="bi bi-speedometer2"></i> {{ t.nav_dashboard }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('admin_books') }}"><i class="bi bi-journals"></i> {{ t.nav_manage_books }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('admin_loans') }}"><i class="bi bi-arrow-left-right"></i> {{ t.nav_loans }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('catalog_extra.index') }}">Exemplarkatalog (Phase 3)</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('loans_extra.index') }}">Exemplar-Ausleihe (Phase 3)</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('catalog_extra.index') }}"><i class="bi bi-journals"></i> Bücher & Exemplare</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('admin_loans') }}"><i class="bi bi-arrow-left-right"></i> Bibliothek · Ausleihe</a></li>
             <li><a class="dropdown-item" href="{{ url_for('admin_users') }}"><i class="bi bi-people"></i> {{ t.nav_users }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('admin_settings') }}"><i class="bi bi-palette"></i> {{ t.nav_appearance }}</a></li>
