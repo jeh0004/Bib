@@ -1,10 +1,10 @@
 
 from datetime import date,timedelta
 import sqlite3
-from flask import Blueprint,abort,flash,redirect,render_template_string,request,session,url_for
+from flask import Blueprint,abort,flash,redirect,render_template_string,request,session,url_for,has_request_context
 bp=Blueprint('loans_extra',__name__,url_prefix='/admin/loans-extra')
 def db():
-    if not session.get('user_id') or session.get('must_change_password'): abort(403)
+    if not (session.get('user_id') if has_request_context() else None) or session.get('must_change_password'): abort(403)
     from app import get_db
     conn=get_db()
     user=conn.execute('SELECT role,is_active FROM users WHERE id=?',(session['user_id'],)).fetchone()
@@ -66,7 +66,7 @@ def checkout(conn,copy_id,user_id):
         cur=conn.execute("INSERT INTO loans(book_id,copy_id,user_id,status,borrowed_at,due_date) VALUES(?,?,?,'borrowed',datetime('now'),?)",(book_id,copy_id,user_id,due))
         if first: conn.execute("DELETE FROM loan_waitlist WHERE book_id=? AND user_id=?",(book_id,user_id))
         conn.execute("""INSERT INTO circulation_audit(loan_id,book_id,user_id,staff_user_id,action,details)
-                        VALUES(?,?,?,?,?,?)""",(cur.lastrowid,book_id,user_id,session.get('user_id'),'checkout',f'Fällig {due}'))
+                        VALUES(?,?,?,?,?,?)""",(cur.lastrowid,book_id,user_id,(session.get('user_id') if has_request_context() else None),'checkout',f'Fällig {due}'))
         conn.commit();return due
     except Exception: conn.rollback();raise
 def renew(conn,loan_id):
@@ -81,7 +81,7 @@ def renew(conn,loan_id):
         due=(max(date.today(),date.fromisoformat(l['due_date']))+timedelta(days=p['loan_days'])).isoformat()
         conn.execute('UPDATE loans SET due_date=?,renewal_count=renewal_count+1,renewal_requested_at=NULL WHERE id=?',(due,loan_id))
         conn.execute("""INSERT INTO circulation_audit(loan_id,book_id,user_id,staff_user_id,action,details)
-                        VALUES(?,?,?,?,?,?)""",(loan_id,l['book_id'],l['user_id'],session.get('user_id'),'renewal_approved',f'Fällig {due}'))
+                        VALUES(?,?,?,?,?,?)""",(loan_id,l['book_id'],l['user_id'],(session.get('user_id') if has_request_context() else None),'renewal_approved',f'Fällig {due}'))
         conn.commit();return due
     except Exception: conn.rollback();raise
 @bp.get('/')
@@ -124,7 +124,7 @@ def action(loan_id):
                 if not c.rowcount: raise ValueError('Kein Antrag vorhanden')
                 row=conn.execute("SELECT book_id,user_id FROM loans WHERE id=?",(loan_id,)).fetchone()
                 conn.execute("""INSERT INTO circulation_audit(loan_id,book_id,user_id,staff_user_id,action)
-                                VALUES(?,?,?,?,?)""",(loan_id,row['book_id'],row['user_id'],session.get('user_id'),'renewal_declined'))
+                                VALUES(?,?,?,?,?)""",(loan_id,row['book_id'],row['user_id'],(session.get('user_id') if has_request_context() else None),'renewal_declined'))
             flash('Verlängerungsantrag abgelehnt.','info')
         elif request.form.get('action')=='return':
             with conn:
@@ -133,7 +133,7 @@ def action(loan_id):
                 c=conn.execute("UPDATE loans SET status='returned',returned_at=datetime('now'),renewal_requested_at=NULL WHERE id=? AND status='borrowed'",(loan_id,))
                 if c.rowcount!=1: raise ValueError('Keine aktive Ausleihe')
                 conn.execute("""INSERT INTO circulation_audit(loan_id,book_id,user_id,staff_user_id,action)
-                                VALUES(?,?,?,?,?)""",(loan_id,row['book_id'],row['user_id'],session.get('user_id'),'return'))
+                                VALUES(?,?,?,?,?)""",(loan_id,row['book_id'],row['user_id'],(session.get('user_id') if has_request_context() else None),'return'))
             flash('Zurückgegeben.','success')
         else: abort(400)
     except ValueError as e: flash(str(e),'danger')
@@ -161,6 +161,6 @@ def quick_return():
                      renewal_requested_at=NULL WHERE id=? AND status='borrowed'""",(row['id'],))
         detail=conn.execute("SELECT book_id,user_id FROM loans WHERE id=?",(row['id'],)).fetchone()
         conn.execute("""INSERT INTO circulation_audit(loan_id,book_id,user_id,staff_user_id,action)
-                        VALUES(?,?,?,?,?)""",(row['id'],detail['book_id'],detail['user_id'],session.get('user_id'),'return'))
+                        VALUES(?,?,?,?,?)""",(row['id'],detail['book_id'],detail['user_id'],(session.get('user_id') if has_request_context() else None),'return'))
     flash(f"Rücknahme verbucht: {row['title']} – {row['full_name']}.",'success')
     return redirect(url_for('admin_loans')+'#ruecknahme')
