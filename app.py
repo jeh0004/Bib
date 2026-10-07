@@ -177,8 +177,9 @@ def flash_msg(key, category='info', **kwargs):
 
 @app.route('/set-language/<lang>')
 def set_language(lang):
-    if lang in STRINGS:
-        session['lang'] = lang
+    # The production UI is intentionally German-only so every workflow uses
+    # one complete and consistent vocabulary.
+    session['lang'] = 'de'
     return redirect(request.referrer or url_for('login'))
 
 
@@ -435,6 +436,45 @@ def get_available_copies(db, book_id):
     ).fetchone()[0]
     return max(0, min(book['total_copies'], physical) - active)
 
+def audit_circulation(db, action, loan_id=None, book_id=None, user_id=None, details=None):
+    """Record staff circulation actions without coupling business logic to the UI."""
+    db.execute("""INSERT INTO circulation_audit
+        (loan_id,book_id,user_id,staff_user_id,action,details)
+        VALUES(?,?,?,?,?,?)""",
+        (loan_id,book_id,user_id,session.get('user_id'),action,details))
+
+
+def expire_reservations(db):
+    """Release pickup reservations whose configured collection period elapsed."""
+    expired=db.execute("""SELECT id,book_id,user_id FROM loans
+        WHERE status='reserved' AND reservation_expires_at IS NOT NULL
+          AND reservation_expires_at < datetime('now')""").fetchall()
+    if not expired:
+        return 0
+    with db:
+        for row in expired:
+            db.execute("UPDATE loans SET status='cancelled' WHERE id=? AND status='reserved'",(row['id'],))
+            db.execute("""INSERT INTO circulation_audit
+                (loan_id,book_id,user_id,staff_user_id,action,details)
+                VALUES(?,?,?,?,?,?)""",(row['id'],row['book_id'],row['user_id'],None,'reservation_expired','Abholfrist abgelaufen'))
+    return len(expired)
+
+
+def renewal_block_reason(db, loan):
+    """Return a user-facing reason when a borrowed loan cannot be renewed."""
+    if not loan or loan['status']!='borrowed':
+        return 'Keine aktive Ausleihe vorhanden.'
+    policy=db.execute("SELECT max_renewals FROM loan_policy WHERE id=1").fetchone()
+    if loan['renewal_count'] >= policy['max_renewals']:
+        return 'Maximale Anzahl an Verlängerungen erreicht.'
+    if db.execute("SELECT 1 FROM loans WHERE book_id=? AND status='reserved' AND id<>?",
+                  (loan['book_id'],loan['id'])).fetchone():
+        return 'Eine Reservierung für dieses Buch liegt bereits vor.'
+    if db.execute("SELECT 1 FROM loan_waitlist WHERE book_id=?",(loan['book_id'],)).fetchone():
+        return 'Eine andere Person wartet bereits auf dieses Buch.'
+    return None
+
+
 def create_reservation(db, book_id, user_id):
     """Atomically reserve a free slot for both web and API requests."""
     db.execute('BEGIN IMMEDIATE')
@@ -453,9 +493,11 @@ def create_reservation(db, book_id, user_id):
         ).fetchone()
         if first and first['user_id'] != user_id:
             raise ValueError('waitlist_priority')
+        reservation_days=db.execute("SELECT reservation_days FROM loan_policy WHERE id=1").fetchone()[0]
         db.execute(
-            "INSERT INTO loans (book_id,user_id,status,reserved_at) VALUES (?,?,'reserved',datetime('now'))",
-            (book_id, user_id)
+            """INSERT INTO loans (book_id,user_id,status,reserved_at,reservation_expires_at)
+               VALUES (?,?,'reserved',datetime('now'),datetime('now', ?))""",
+            (book_id, user_id, f'+{reservation_days} days')
         )
         if first:
             db.execute("DELETE FROM loan_waitlist WHERE book_id=? AND user_id=?", (book_id,user_id))
@@ -658,58 +700,75 @@ def index():
 @login_required
 def catalog():
     db = get_db()
-    q = request.args.get('q', '').strip()
-    category = request.args.get('category', '').strip()
-    author = request.args.get('author', '').strip()
-    area = request.args.get('area', '').strip()
-    topic = request.args.get('topic', '').strip()
-    available_only = request.args.get('available') == '1'
-    term = f"%{q}%"
-    area_term = f"%{area}%"
-    topic_term = f"%{topic}%"
-
-    base = """
+    expire_reservations(db)
+    q=request.args.get('q','').strip()
+    category=request.args.get('category','').strip()
+    author=request.args.get('author','').strip()
+    area=request.args.get('area','').strip()
+    topic=request.args.get('topic','').strip()
+    available_only=request.args.get('available')=='1'
+    sort=request.args.get('sort','title')
+    sort_sql={
+        'title':'title COLLATE NOCASE, author COLLATE NOCASE',
+        'author':'author COLLATE NOCASE, title COLLATE NOCASE',
+        'year':'published DESC, title COLLATE NOCASE',
+        'available':'available DESC, title COLLATE NOCASE',
+    }.get(sort,'title COLLATE NOCASE, author COLLATE NOCASE')
+    try:
+        page=max(1,int(request.args.get('page','1')))
+    except ValueError:
+        page=1
+    per_page=24
+    term=f"%{q}%"
+    base="""
         SELECT b.*,
                MAX(0, MIN(b.total_copies,
-                   (SELECT COUNT(*) FROM book_copies c
-                    WHERE c.book_id=b.id AND c.is_active=1))
+                   (SELECT COUNT(*) FROM book_copies c WHERE c.book_id=b.id AND c.is_active=1))
                    - (SELECT COUNT(*) FROM loans l WHERE l.book_id=b.id
                       AND l.status IN ('reserved','borrowed'))) AS available
         FROM books b
-        WHERE (b.title LIKE ? OR b.author LIKE ? OR b.category LIKE ?
-           OR b.isbn LIKE ? OR b.description LIKE ? OR EXISTS (
-               SELECT 1 FROM book_copies c WHERE c.book_id=b.id
-               AND (c.barcode LIKE ? OR c.inventory_code LIKE ?
-                    OR c.location LIKE ? OR c.shelf LIKE ?))
-           OR EXISTS (SELECT 1 FROM book_tags bt JOIN tags t ON t.id=bt.tag_id
-                      WHERE bt.book_id=b.id AND t.name LIKE ?)
-           OR EXISTS (SELECT 1 FROM book_genres bg JOIN genres ge ON ge.id=bg.genre_id
-                      WHERE bg.book_id=b.id AND ge.name LIKE ?))
+        WHERE (b.title LIKE ? OR b.author LIKE ? OR b.category LIKE ? OR b.isbn LIKE ?
+               OR b.publisher LIKE ? OR b.area LIKE ? OR b.topic LIKE ? OR b.book_index LIKE ?
+               OR EXISTS (SELECT 1 FROM book_copies c WHERE c.book_id=b.id
+                   AND (c.barcode LIKE ? OR c.inventory_code LIKE ? OR c.location LIKE ? OR c.shelf LIKE ?))
+               OR EXISTS (SELECT 1 FROM book_tags bt JOIN tags t ON t.id=bt.tag_id
+                   WHERE bt.book_id=b.id AND t.name LIKE ?)
+               OR EXISTS (SELECT 1 FROM book_genres bg JOIN genres ge ON ge.id=bg.genre_id
+                   WHERE bg.book_id=b.id AND ge.name LIKE ?))
           AND (?='' OR b.category=?)
           AND (?='' OR b.author LIKE ?)
-          AND (?='' OR b.description LIKE ?)
-          AND (?='' OR b.description LIKE ?)
+          AND (?='' OR b.area LIKE ?)
+          AND (?='' OR b.topic LIKE ?)
     """
-    params = [term]*11 + [category, category, author, f"%{author}%",
-                          area, area_term, topic, topic_term]
-    books = db.execute("SELECT * FROM (" + base + ") x " +
-                       ("WHERE available > 0 " if available_only else "") +
-                       "ORDER BY title", params).fetchall()
-    categories = [r[0] for r in db.execute(
-        "SELECT DISTINCT category FROM books WHERE category IS NOT NULL AND TRIM(category)<>'' ORDER BY category"
-    ).fetchall()]
-    authors = [r[0] for r in db.execute(
-        "SELECT DISTINCT author FROM books WHERE author IS NOT NULL AND TRIM(author)<>'' AND author<>'Unbekannt' ORDER BY author LIMIT 300"
-    ).fetchall()]
-    return render_template('catalog.html', books=books, q=q, category=category,
-                           author=author, area=area, topic=topic,
-                           available_only=available_only, categories=categories,
-                           authors=authors, result_count=len(books))
+    params=[term]*14+[category,category,author,f"%{author}%",area,f"%{area}%",topic,f"%{topic}%"]
+    wrapped="SELECT * FROM ("+base+") x"
+    if available_only:
+        wrapped+=" WHERE available>0"
+    total=db.execute("SELECT COUNT(*) FROM ("+wrapped+") z",params).fetchone()[0]
+    pages=max(1,(total+per_page-1)//per_page)
+    page=min(page,pages)
+    books=db.execute(wrapped+" ORDER BY "+sort_sql+" LIMIT ? OFFSET ?",
+                     params+[per_page,(page-1)*per_page]).fetchall()
+    categories=[row[0] for row in db.execute(
+        "SELECT DISTINCT category FROM books WHERE category IS NOT NULL AND TRIM(category)<>'' ORDER BY category")]
+    authors=[row[0] for row in db.execute(
+        "SELECT DISTINCT author FROM books WHERE author IS NOT NULL AND TRIM(author)<>'' AND author<>'Unbekannt' ORDER BY author LIMIT 300")]
+    areas=[row[0] for row in db.execute(
+        "SELECT DISTINCT area FROM books WHERE area IS NOT NULL AND TRIM(area)<>'' ORDER BY area")]
+    topics=[row[0] for row in db.execute(
+        "SELECT DISTINCT topic FROM books WHERE topic IS NOT NULL AND TRIM(topic)<>'' ORDER BY topic")]
+    return render_template('catalog.html',books=books,q=q,category=category,author=author,
+        area=area,topic=topic,available_only=available_only,categories=categories,
+        authors=authors,areas=areas,topics=topics,result_count=total,page=page,pages=pages,
+        per_page=per_page,sort=sort)
+
+
 
 @app.route('/book/<int:book_id>')
 @login_required
 def book_detail(book_id):
     db = get_db()
+    expire_reservations(db)
     book = db.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
     if not book:
         abort(404)
@@ -731,23 +790,24 @@ def book_detail(book_id):
     waitlist_position = next((i+1 for i, entry in enumerate(queue)
                               if entry['user_id'] == session['user_id']), None)
     can_reserve = available > 0 and (not queue or queue[0]['user_id'] == session['user_id'])
-    # Older imported records store structured details as JSON in description.
-    # Parse for display only; never change the original database field.
-    description_text = book['description'] or ''
-    extra_details = {}
+    description_text=book['description'] or ''
+    extra_details={}
     if description_text.strip().startswith('{'):
         try:
-            parsed = json.loads(description_text)
-            if isinstance(parsed, dict):
-                extra_details = {str(k): str(v) for k, v in parsed.items()
-                                 if v is not None and str(v).strip()}
-                description_text = ''
-        except (ValueError, TypeError):
+            parsed=json.loads(description_text)
+            if isinstance(parsed,dict):
+                description_text=''
+        except (ValueError,TypeError):
             pass
-    return render_template('book_detail.html', description_text=description_text,
-                           extra_details=extra_details, book=book, available=available,
-                           loans=loans, my_loan=my_loan, waitlist_position=waitlist_position,
-                           waitlist_count=len(queue), can_reserve=can_reserve)
+    for label,column in [('Gebiet', 'area'),('Thema','topic'),('Buchindex','book_index')]:
+        if book[column]:
+            extra_details[label]=book[column]
+    back=request.args.get('back','')
+    back_url=back if back.startswith('/catalog') else url_for('catalog')
+    return render_template('book_detail.html',description_text=description_text,
+                           extra_details=extra_details,book=book,available=available,
+                           loans=loans,my_loan=my_loan,waitlist_position=waitlist_position,
+                           waitlist_count=len(queue),can_reserve=can_reserve,back_url=back_url)
 
 
 @app.route('/book/<int:book_id>/reserve', methods=['POST'])
@@ -816,38 +876,49 @@ def return_book(book_id):
 @app.route('/my-loans')
 @login_required
 def my_loans():
-    db = get_db()
-    active = db.execute("""
-        SELECT l.*, b.title, b.author, b.cover_url
-        FROM loans l JOIN books b ON l.book_id = b.id
-        WHERE l.user_id = ? AND l.status IN ('reserved','borrowed')
-        ORDER BY l.reserved_at DESC
-    """, (session['user_id'],)).fetchall()
-    history = db.execute("""
-        SELECT l.*, b.title, b.author
-        FROM loans l JOIN books b ON l.book_id = b.id
-        WHERE l.user_id = ? AND l.status = 'returned'
-        ORDER BY l.returned_at DESC
-        LIMIT 20
-    """, (session['user_id'],)).fetchall()
-    return render_template('user/my_loans.html', active=active, history=history)
-
+    db=get_db()
+    expire_reservations(db)
+    rows=db.execute("""SELECT l.*,b.title,b.author,b.cover_url
+        FROM loans l JOIN books b ON l.book_id=b.id
+        WHERE l.user_id=? AND l.status IN ('reserved','borrowed')
+        ORDER BY l.reserved_at DESC""",(session['user_id'],)).fetchall()
+    today=datetime.now(timezone.utc).date()
+    active=[]
+    for row in rows:
+        item=dict(row)
+        item['renewal_block_reason']=renewal_block_reason(db,row) if row['status']=='borrowed' else None
+        item['overdue_days']=0
+        if row['status']=='borrowed' and row['due_date']:
+            try:
+                due=datetime.fromisoformat(row['due_date']).date()
+                item['overdue_days']=max(0,(today-due).days)
+            except ValueError:
+                pass
+        active.append(item)
+    history=db.execute("""SELECT l.*,b.title,b.author FROM loans l JOIN books b ON l.book_id=b.id
+        WHERE l.user_id=? AND l.status='returned' ORDER BY l.returned_at DESC LIMIT 20""",
+        (session['user_id'],)).fetchall()
+    return render_template('user/my_loans.html',active=active,history=history)
 
 @app.route('/my-loans/<int:loan_id>/request-renewal', methods=['POST'])
 @login_required
 def request_renewal(loan_id):
-    db = get_db()
-    with db:
-        changed = db.execute("""
-            UPDATE loans SET renewal_requested_at=datetime('now')
-            WHERE id=? AND user_id=? AND status='borrowed'
-              AND renewal_requested_at IS NULL
-        """, (loan_id, session['user_id']))
-    if changed.rowcount:
-        flash('Verlängerung beantragt. Die Bibliothek prüft deinen Antrag.', 'success')
+    db=get_db()
+    loan=db.execute("SELECT * FROM loans WHERE id=? AND user_id=? AND status='borrowed'",
+                    (loan_id,session['user_id'])).fetchone()
+    reason=renewal_block_reason(db,loan)
+    if not loan:
+        flash('Für diese Ausleihe ist kein neuer Antrag möglich.','warning')
+    elif loan['renewal_requested_at']:
+        flash('Ein Verlängerungsantrag ist bereits offen.','info')
+    elif reason:
+        flash('Verlängerung derzeit nicht möglich: '+reason,'warning')
     else:
-        flash('Für diese Ausleihe ist kein neuer Antrag möglich.', 'warning')
+        with db:
+            db.execute("UPDATE loans SET renewal_requested_at=datetime('now') WHERE id=?",(loan_id,))
+        flash('Verlängerung beantragt. Die Bibliothek prüft deinen Antrag.','success')
     return redirect(url_for('my_loans'))
+
 
 # ---------------------------------------------------------------------------
 # Admin: dashboard
@@ -1022,6 +1093,7 @@ def admin_statistics():
 @librarian_required
 def admin_loans():
     db = get_db()
+    expire_reservations(db)
     status_filter = request.args.get('status', '')
     search = request.args.get('q', '').strip()
     where = []
@@ -1084,11 +1156,27 @@ def admin_loans():
           )
         ORDER BY b.title,c.copy_number
     """).fetchall()
+    waitlist_ready=db.execute("""
+        SELECT w.book_id,b.title,u.full_name,u.username,w.requested_at,
+               (SELECT COUNT(*) FROM loan_waitlist w2 WHERE w2.book_id=w.book_id) AS waiting
+        FROM loan_waitlist w JOIN books b ON b.id=w.book_id JOIN users u ON u.id=w.user_id
+        WHERE w.id=(SELECT w2.id FROM loan_waitlist w2 WHERE w2.book_id=w.book_id ORDER BY w2.requested_at,w2.id LIMIT 1)
+          AND (SELECT COUNT(*) FROM book_copies c WHERE c.book_id=w.book_id AND c.is_active=1)
+              > (SELECT COUNT(*) FROM loans l WHERE l.book_id=w.book_id AND l.status IN ('reserved','borrowed'))
+        ORDER BY w.requested_at LIMIT 20
+    """).fetchall()
+    policy=db.execute("SELECT * FROM loan_policy WHERE id=1").fetchone()
+    audit=db.execute("""SELECT a.*,b.title,u.full_name AS member_name,s.full_name AS staff_name
+        FROM circulation_audit a
+        LEFT JOIN books b ON b.id=a.book_id LEFT JOIN users u ON u.id=a.user_id
+        LEFT JOIN users s ON s.id=a.staff_user_id
+        ORDER BY a.created_at DESC,a.id DESC LIMIT 30""").fetchall()
     now = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     return render_template('admin/loans.html', loans=loans, status_filter=status_filter,
                            q=search, now=now, reminders=reminders, stats=stats,
                            reservations=reservations, renewal_requests=renewal_requests,
-                           members=members, available_copies=available_copies)
+                           members=members, available_copies=available_copies,
+                           waitlist_ready=waitlist_ready,policy=policy,audit=audit)
 
 @app.route('/admin/loans/<int:loan_id>/confirm', methods=['POST'])
 @librarian_required
@@ -1129,22 +1217,55 @@ def admin_confirm_loan(loan_id):
         """, (copy_id, due_date, loan_id))
         if changed.rowcount != 1:
             raise ValueError('Reservierung konnte nicht ausgegeben werden')
+        full=db.execute("SELECT user_id FROM loans WHERE id=?",(loan_id,)).fetchone()
+        audit_circulation(db,'checkout',loan_id,loan['book_id'],full['user_id'],f'Fällig {due_date}')
         db.commit()
         flash_msg('flash_loan_confirmed', 'success')
     except (ValueError, sqlite3.IntegrityError) as error:
         db.rollback()
         flash(str(error), 'danger')
-    return redirect(url_for('admin_loans', status='reserved'))
+    return redirect(url_for('admin_loans', status='reserved') + '#reservierungen')
 
 
 @app.route('/admin/loans/<int:loan_id>/cancel', methods=['POST'])
 @librarian_required
 def admin_cancel_loan(loan_id):
     db = get_db()
-    db.execute("DELETE FROM loans WHERE id = ? AND status = 'reserved'", (loan_id,))
-    db.commit()
-    flash_msg('flash_loan_cancelled', 'success')
-    return redirect(url_for('admin_loans', status='reserved'))
+    loan=db.execute("SELECT book_id,user_id FROM loans WHERE id=? AND status='reserved'",(loan_id,)).fetchone()
+    if loan:
+        with db:
+            db.execute("UPDATE loans SET status='cancelled' WHERE id=?",(loan_id,))
+            audit_circulation(db,'reservation_cancelled',loan_id,loan['book_id'],loan['user_id'])
+    flash_msg('flash_loan_cancelled','success')
+    return redirect(url_for('admin_loans',status='reserved') + '#reservierungen')
+
+
+@app.route('/admin/waitlist/<int:book_id>/promote',methods=['POST'])
+@librarian_required
+def promote_waitlist(book_id):
+    db=get_db()
+    expire_reservations(db)
+    first=db.execute("""SELECT w.user_id,u.full_name FROM loan_waitlist w
+        JOIN users u ON u.id=w.user_id WHERE w.book_id=?
+        ORDER BY w.requested_at,w.id LIMIT 1""",(book_id,)).fetchone()
+    if not first:
+        flash('Keine Person auf der Warteliste.','warning')
+    elif get_available_copies(db,book_id)<=0:
+        flash('Aktuell ist kein Exemplar frei.','warning')
+    else:
+        try:
+            create_reservation(db,book_id,first['user_id'])
+            loan=db.execute("""SELECT id,reservation_expires_at FROM loans
+                WHERE book_id=? AND user_id=? AND status='reserved'
+                ORDER BY id DESC LIMIT 1""",(book_id,first['user_id'])).fetchone()
+            with db:
+                audit_circulation(db,'waitlist_promoted',loan['id'],book_id,first['user_id'],
+                                  'Warteliste in Reservierung umgewandelt')
+            flash(f"{first['full_name']} wurde reserviert.",'success')
+        except ValueError as exc:
+            flash('Reservierung konnte nicht erstellt werden: '+str(exc),'danger')
+    return redirect(url_for('admin_loans')+'#warteliste')
+
 
 # ---------------------------------------------------------------------------
 # Admin: users
