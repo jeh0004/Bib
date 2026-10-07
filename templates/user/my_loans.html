@@ -1,74 +1,70 @@
 {% extends 'base.html' %}
-{% block title %}{{ t.loans_title }} – Vereinsbibliothek{% endblock %}
+{% block title %}Meine Bücher – Vereinsbibliothek{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4"><i class="bi bi-bookmark-check"></i> {{ t.loans_title }}</h1>
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
+  <div>
+    <h1 class="h3 mb-1"><i class="bi bi-bookmark-check"></i> Meine Bücher</h1>
+    <p class="text-muted mb-0">Reservierungen werden in der Bibliothek ausgegeben. Verlängerungen kannst du hier beantragen; Rückgaben verbucht ein Bibliothekar.</p>
+  </div>
+</div>
 
-<p class="text-muted">Reservierungen, Ausgaben und Rückgaben werden in der Bibliothek bearbeitet. Hier kannst du eine Verlängerung beantragen.</p>
-<h2 class="h5">{{ t.loans_active }}</h2>
 {% if active %}
-<div class="table-responsive mb-4">
-  <table class="table table-hover align-middle">
-    <thead class="table-light">
-      <tr>
-        <th>{{ t.loans_col_book }}</th>
-        <th>{{ t.loans_col_author }}</th>
-        <th>{{ t.loans_col_status }}</th>
-        <th>{{ t.loans_col_reserved }}</th>
-        <th>{{ t.loans_col_borrowed }}</th>
-        <th>{{ t.loans_col_due }}</th>
-        <th>Aktion</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for loan in active %}
-      <tr>
-        <td><a href="{{ url_for('book_detail', book_id=loan.book_id) }}">{{ loan.title }}</a></td>
-        <td>{{ loan.author }}</td>
-        <td>
-          {% if loan.status == 'reserved' %}
-            <span class="badge bg-warning text-dark">{{ t.status_reserved }}</span>
-          {% else %}
-            <span class="badge bg-primary">{{ t.status_borrowed }}</span>
-          {% endif %}
-        </td>
-        <td>{{ loan.reserved_at[:10] }}</td>
-        <td>{{ loan.borrowed_at[:10] if loan.borrowed_at else '–' }}</td>
-        <td>{{ loan.due_date or '–' }}</td>
-        <td>
-          {% if loan.status == 'borrowed' %}
-            {% if loan.renewal_requested_at %}
-              <span class="text-muted small">Verlängerung beantragt · wartet auf Bibliothek</span>
+<div class="row g-3 mb-4">
+  {% for loan in active %}
+  <div class="col-12 col-lg-6">
+    <article class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex gap-3">
+          <div class="bg-light rounded d-flex align-items-center justify-content-center flex-shrink-0" style="width:78px;height:108px">
+            {% if loan.cover_url %}<img src="{{loan.cover_url}}" alt="" style="max-width:100%;max-height:100%;object-fit:contain">
+            {% else %}<i class="bi bi-book fs-2 text-secondary"></i>{% endif %}
+          </div>
+          <div class="flex-grow-1 min-w-0">
+            <h2 class="h5 mb-1"><a href="{{url_for('book_detail',book_id=loan.book_id)}}" class="text-decoration-none">{{loan.title}}</a></h2>
+            <div class="text-muted small mb-2">{{loan.author}}</div>
+            {% if loan.status == 'reserved' %}
+              <span class="badge bg-warning text-dark mb-2">Reserviert</span>
+              <div class="workflow-step active mt-2"><span class="workflow-dot"></span><strong>Reservierung eingegangen</strong><div class="small text-muted">{{loan.reserved_at|de_date}}</div></div>
+              <div class="workflow-step"><span class="workflow-dot"></span><strong>Nächster Schritt: Abholung</strong><div class="small text-muted">Bitte in der Bibliothek abholen. Ein Bibliothekar verbucht die Ausgabe.</div></div>
             {% else %}
-              <form method="post" action="{{url_for('request_renewal',loan_id=loan.id)}}">
-                <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
-                <button class="btn btn-sm btn-outline-primary">Verlängerung beantragen</button>
-              </form>
+              <span class="badge bg-primary mb-2">Ausgeliehen</span>
+              <div class="mb-2"><strong>Rückgabe bis:</strong> {{loan.due_date|de_date}}</div>
+              {% if loan.renewal_requested_at %}
+                <div class="alert alert-warning py-2 mb-2"><i class="bi bi-hourglass-split"></i> Verlängerung beantragt – wartet auf Bibliothek.</div>
+              {% else %}
+                <form method="post" action="{{url_for('request_renewal',loan_id=loan.id)}}" class="mb-2">
+                  <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
+                  <button class="btn btn-outline-primary btn-sm">Verlängerung beantragen</button>
+                </form>
+              {% endif %}
+              <div class="small text-muted"><i class="bi bi-arrow-return-left"></i> Rückgabe vor Ort beim Bibliothekar.</div>
             {% endif %}
-            <div class="text-muted small mt-1">Rückgabe vor Ort beim Bibliothekar</div>
-          {% else %}<span class="text-muted small">Ausgabe durch Bibliothekar</span>{% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+  {% endfor %}
 </div>
 {% else %}
-<p class="text-muted">{{ t.loans_no_active }}</p>
+<div class="card shadow-sm mb-4"><div class="card-body text-center py-5 text-muted">
+  <i class="bi bi-book fs-1"></i>
+  <h2 class="h5 mt-2">Keine aktiven Reservierungen oder Ausleihen</h2>
+  <a href="{{url_for('catalog')}}" class="btn btn-primary mt-2">Zum Katalog</a>
+</div></div>
 {% endif %}
 
 {% if history %}
-<h2 class="h5 mt-4">{{ t.loans_history }}</h2>
+<h2 class="h5 mt-4">Letzte Rückgaben</h2>
 <div class="table-responsive">
-  <table class="table table-sm text-muted">
-    <thead>
-      <tr><th>{{ t.loans_col_book }}</th><th>{{ t.loans_col_borrowed }}</th><th>{{ t.status_returned }}</th></tr>
-    </thead>
+  <table class="table table-sm align-middle mobile-stack-table">
+    <thead><tr><th>Buch</th><th>Ausgegeben</th><th>Zurückgegeben</th></tr></thead>
     <tbody>
       {% for loan in history %}
       <tr>
-        <td>{{ loan.title }}</td>
-        <td>{{ loan.reserved_at[:10] }}</td>
-        <td>{{ loan.returned_at[:10] if loan.returned_at else '–' }}</td>
+        <td><a href="{{url_for('book_detail',book_id=loan.book_id)}}">{{loan.title}}</a></td>
+        <td>{{loan.borrowed_at|de_date}}</td>
+        <td>{{loan.returned_at|de_date}}</td>
       </tr>
       {% endfor %}
     </tbody>
