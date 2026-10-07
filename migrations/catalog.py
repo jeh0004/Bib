@@ -17,7 +17,9 @@ def migrate(db: sqlite3.Connection):
         if 'cover_url' not in columns:
             db.execute('ALTER TABLE books ADD COLUMN cover_url TEXT')
         for column, definition in [('publisher','TEXT'),('published','TEXT'),('pages','INTEGER'),
-                                   ('area','TEXT'),('topic','TEXT'),('book_index','TEXT')]:
+                                   ('area','TEXT'),('topic','TEXT'),('book_index','TEXT'),
+                                   ('cover_source','TEXT'),('cover_status',"TEXT NOT NULL DEFAULT 'missing'"),
+                                   ('cover_confidence','INTEGER'),('cover_checked_at','TEXT')]:
             if column not in columns:
                 db.execute(f'ALTER TABLE books ADD COLUMN {column} {definition}')
                 columns.add(column)
@@ -49,6 +51,28 @@ def migrate(db: sqlite3.Connection):
                     published or meta.get('Auflagedatum') or None,
                     row['id'] if hasattr(row, 'keys') else row[0]
                 ))
+        db.execute("""CREATE TABLE IF NOT EXISTS cover_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+            cover_url TEXT NOT NULL,
+            source TEXT NOT NULL,
+            candidate_title TEXT,
+            candidate_author TEXT,
+            candidate_isbn TEXT,
+            confidence INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(book_id,cover_url)
+        )""")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_cover_candidates_book_status ON cover_candidates(book_id,status)")
+        if 'cover_url' in columns:
+            db.execute("""UPDATE books
+                          SET cover_status=CASE
+                              WHEN cover_url IS NOT NULL AND TRIM(cover_url)!='' AND
+                                   (cover_status IS NULL OR cover_status='missing') THEN 'existing'
+                              WHEN cover_status IS NULL OR TRIM(cover_status)='' THEN 'missing'
+                              ELSE cover_status END""")
+
         loan_columns = {r[1] for r in db.execute('PRAGMA table_info(loans)')}
         if 'copy_id' not in loan_columns:
             db.execute('ALTER TABLE loans ADD COLUMN copy_id INTEGER REFERENCES book_copies(id)')
