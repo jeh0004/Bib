@@ -4,54 +4,43 @@
 <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-4">
   <div>
     <h1 class="h3 mb-1"><i class="bi bi-arrow-left-right"></i> Bibliothek</h1>
-    <p class="text-muted mb-0">Zentrale Arbeitsseite für Ausgabe, Verlängerung und Rücknahme.</p>
+    <p class="text-muted mb-0">Zentrale Arbeitsseite für Ausgabe, Warteliste, Verlängerung und Rücknahme.</p>
   </div>
 </div>
 
 <div class="row g-3 mb-4">
-  <div class="col-6 col-lg-3"><div class="card shadow-sm stat-card"><div class="card-body">
-    <div class="text-muted small">Zur Ausgabe reserviert</div><div class="display-6">{{stats.reserved}}</div>
-  </div></div></div>
-  <div class="col-6 col-lg-3"><div class="card shadow-sm stat-card"><div class="card-body">
-    <div class="text-muted small">Verlängerungsanträge</div><div class="display-6">{{stats.renewals}}</div>
-  </div></div></div>
-  <div class="col-6 col-lg-3"><div class="card shadow-sm stat-card"><div class="card-body">
-    <div class="text-muted small">Aktuell ausgeliehen</div><div class="display-6">{{stats.borrowed}}</div>
-  </div></div></div>
-  <div class="col-6 col-lg-3"><div class="card shadow-sm stat-card"><div class="card-body">
-    <div class="text-muted small">Überfällig</div><div class="display-6 {{'text-danger' if stats.overdue else ''}}">{{stats.overdue}}</div>
-  </div></div></div>
+  <div class="col-6 col-lg-3"><div class="card shadow-sm stat-card"><div class="card-body"><div class="text-muted small">Zur Ausgabe reserviert</div><div class="display-6">{{stats.reserved}}</div></div></div></div>
+  <div class="col-6 col-lg-3"><div class="card shadow-sm stat-card"><div class="card-body"><div class="text-muted small">Verlängerungsanträge</div><div class="display-6">{{stats.renewals}}</div></div></div></div>
+  <div class="col-6 col-lg-3"><div class="card shadow-sm stat-card"><div class="card-body"><div class="text-muted small">Aktuell ausgeliehen</div><div class="display-6">{{stats.borrowed}}</div></div></div></div>
+  <div class="col-6 col-lg-3"><div class="card shadow-sm stat-card"><div class="card-body"><div class="text-muted small">Überfällig</div><div class="display-6 {{'text-danger' if stats.overdue else ''}}">{{stats.overdue}}</div></div></div></div>
 </div>
 
 <div class="row g-3 mb-4">
-  <div class="col-lg-7">
+  <div class="col-lg-7" id="direkte-ausgabe">
     <div class="card shadow-sm action-card h-100"><div class="card-body">
       <h2 class="h5"><i class="bi bi-box-arrow-right"></i> Direkte Ausgabe</h2>
-      <p class="text-muted small">Für ein Buch ohne vorhandene Reservierung. Inventarnummer/Barcode und Mitglied können gesucht oder gescannt werden.</p>
+      <p class="text-muted small">Nur für Bücher ohne vorhandene Reservierung. Inventarnummer/Barcode und Mitglied können gesucht oder gescannt werden.</p>
       <form method="post" action="{{url_for('loans_extra.borrow')}}" class="row g-2">
         <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
         <div class="col-12 col-md-6">
           <label class="form-label">Exemplar</label>
           <input class="form-control" name="copy_lookup" list="copyOptions" placeholder="Inventarnummer oder Barcode" required autocomplete="off">
-          <datalist id="copyOptions">
-            {% for c in available_copies %}<option value="{{c.inventory_code}}">{{c.title}}{% if c.barcode %} · {{c.barcode}}{% endif %}</option>{% endfor %}
-          </datalist>
+          <datalist id="copyOptions">{% for c in available_copies %}<option value="{{c.inventory_code}}">{{c.title}}{% if c.barcode %} · {{c.barcode}}{% endif %}</option>{% endfor %}</datalist>
         </div>
         <div class="col-12 col-md-6">
           <label class="form-label">Mitglied</label>
           <input class="form-control" name="member_lookup" list="memberOptions" placeholder="Name oder Benutzername" required autocomplete="off">
-          <datalist id="memberOptions">
-            {% for m in members %}<option value="{{m.username}} – {{m.full_name}}"></option>{% endfor %}
-          </datalist>
+          <datalist id="memberOptions">{% for m in members %}<option value="{{m.username}}">{{m.full_name}}</option>{% endfor %}</datalist>
         </div>
         <div class="col-12"><button class="btn btn-primary"><i class="bi bi-check2-circle"></i> Ausgabe verbuchen</button></div>
       </form>
     </div></div>
   </div>
-  <div class="col-lg-5">
+
+  <div class="col-lg-5" id="ruecknahme">
     <div class="card shadow-sm action-card h-100"><div class="card-body">
       <h2 class="h5"><i class="bi bi-arrow-return-left"></i> Schnelle Rücknahme</h2>
-      <p class="text-muted small">Inventarnummer oder Barcode eingeben bzw. scannen. Danach wird die aktive Ausleihe zurückgebucht.</p>
+      <p class="text-muted small">Inventarnummer oder Barcode eingeben bzw. scannen. Nach der Rücknahme erscheint gegebenenfalls die nächste Person aus der Warteliste.</p>
       <form method="post" action="{{url_for('loans_extra.quick_return')}}">
         <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
         <label class="form-label">Inventarnummer / Barcode</label>
@@ -64,6 +53,31 @@
   </div>
 </div>
 
+<section class="mb-4" id="warteliste">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h2 class="h5 mb-0">Warteliste – jetzt reservierbar</h2>
+    {% if waitlist_ready %}<span class="badge bg-info text-dark">{{waitlist_ready|length}} bereit</span>{% endif %}
+  </div>
+  {% if waitlist_ready %}
+  <div class="list-group shadow-sm">
+    {% for item in waitlist_ready %}
+    <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div>
+        <strong>{{item.title}}</strong>
+        <div class="small text-muted">Nächste Person: {{item.full_name}} · seit {{item.requested_at|de_date}}{% if item.waiting>1 %} · {{item.waiting}} Personen warten{% endif %}</div>
+      </div>
+      <form method="post" action="{{url_for('promote_waitlist',book_id=item.book_id)}}">
+        <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
+        <button class="btn btn-sm btn-primary">Für Mitglied reservieren</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card shadow-sm"><div class="card-body text-muted">Aktuell wartet niemand auf ein wieder verfügbares Exemplar.</div></div>
+  {% endif %}
+</section>
+
 <section class="mb-4" id="reservierungen">
   <div class="d-flex justify-content-between align-items-center mb-2">
     <h2 class="h5 mb-0">Reservierungen zur Ausgabe</h2>
@@ -74,7 +88,11 @@
     {% for loan in reservations %}
     <div class="col-12 col-xl-6"><div class="card shadow-sm"><div class="card-body">
       <div class="d-flex justify-content-between gap-3">
-        <div><strong>{{loan.title}}</strong><div class="text-muted small">{{loan.full_name}} · reserviert {{loan.reserved_at|de_date}}</div></div>
+        <div>
+          <strong>{{loan.title}}</strong>
+          <div class="text-muted small">{{loan.full_name}} · reserviert {{loan.reserved_at|de_date}}</div>
+          {% if loan.reservation_expires_at %}<div class="small"><strong>Abholen bis {{loan.reservation_expires_at|de_date}}</strong></div>{% endif %}
+        </div>
         <span class="badge bg-warning text-dark align-self-start">Reserviert</span>
       </div>
       <div class="d-flex gap-2 mt-3 flex-wrap">
@@ -106,7 +124,7 @@
   {% else %}<div class="card shadow-sm"><div class="card-body text-muted">Keine Reservierung wartet auf Ausgabe.</div></div>{% endif %}
 </section>
 
-<section class="mb-4">
+<section class="mb-4" id="verlaengerungen">
   <div class="d-flex justify-content-between align-items-center mb-2">
     <h2 class="h5 mb-0">Verlängerungsanträge</h2>
     {% if stats.renewals %}<span class="badge bg-warning text-dark">{{stats.renewals}} offen</span>{% endif %}
@@ -142,7 +160,22 @@
 </section>
 {% endif %}
 
-<section>
+{% if session.role == 'admin' %}
+<details class="card shadow-sm mb-4" id="leihregeln">
+  <summary class="card-body fw-semibold">Leihregeln</summary>
+  <div class="card-body pt-0">
+    <form method="post" action="{{url_for('loans_extra.settings')}}" class="row g-3">
+      <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
+      <div class="col-sm-4"><label class="form-label">Leihfrist in Tagen</label><input class="form-control" type="number" name="days" min="1" max="365" value="{{policy.loan_days}}" required></div>
+      <div class="col-sm-4"><label class="form-label">Max. Verlängerungen</label><input class="form-control" type="number" name="max" min="0" max="20" value="{{policy.max_renewals}}" required></div>
+      <div class="col-sm-4"><label class="form-label">Abholfrist in Tagen</label><input class="form-control" type="number" name="reservation_days" min="1" max="60" value="{{policy.reservation_days}}" required></div>
+      <div class="col-12"><button class="btn btn-outline-primary">Regeln speichern</button></div>
+    </form>
+  </div>
+</details>
+{% endif %}
+
+<section class="mb-4">
   <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
     <div><h2 class="h5 mb-1">Alle Vorgänge</h2><div class="text-muted small">Suche nach Buch, Mitglied, Inventarnummer oder Barcode.</div></div>
     <form method="get" class="d-flex gap-2">
@@ -168,7 +201,7 @@
       <tr class="{{'table-danger' if loan.status=='borrowed' and loan.due_date and loan.due_date < now}}">
         <td><a href="{{url_for('book_detail',book_id=loan.book_id)}}">{{loan.title}}</a></td>
         <td>{{loan.full_name}}<div class="small text-muted">{{loan.email or loan.username}}</div></td>
-        <td>{% if loan.status=='reserved' %}<span class="badge bg-warning text-dark">Reserviert</span>{% elif loan.status=='borrowed' %}<span class="badge bg-primary">Ausgeliehen</span>{% else %}<span class="badge bg-success">Zurückgegeben</span>{% endif %}</td>
+        <td>{% if loan.status=='reserved' %}<span class="badge bg-warning text-dark">Reserviert</span>{% elif loan.status=='borrowed' %}<span class="badge bg-primary">Ausgeliehen</span>{% elif loan.status=='returned' %}<span class="badge bg-success">Zurückgegeben</span>{% else %}<span class="badge bg-secondary">{{loan.status}}</span>{% endif %}</td>
         <td>{{loan.inventory_code or '–'}}</td>
         <td>{{loan.due_date|de_date}}</td>
         <td>
@@ -186,4 +219,20 @@
   </div>
   {% else %}<p class="text-muted">Keine passenden Vorgänge gefunden.</p>{% endif %}
 </section>
+
+{% if audit %}
+<section class="mt-5">
+  <h2 class="h5">Letzte Bibliotheksaktionen</h2>
+  <p class="small text-muted">Nachvollziehbarkeit von Ausgabe, Rücknahme, Verlängerung und Stornierung.</p>
+  <div class="table-responsive"><table class="table table-sm mobile-stack-table">
+    <thead><tr><th>Datum</th><th>Aktion</th><th>Buch</th><th>Mitglied</th><th>Durchgeführt von</th><th>Details</th></tr></thead>
+    <tbody>
+    {% set labels={'checkout':'Ausgabe','return':'Rücknahme','renewal_approved':'Verlängerung genehmigt','renewal_declined':'Verlängerung abgelehnt','reservation_cancelled':'Reservierung storniert','reservation_expired':'Reservierung abgelaufen','waitlist_promoted':'Warteliste reserviert'} %}
+    {% for item in audit %}
+      <tr><td>{{item.created_at|de_date}}</td><td>{{labels.get(item.action,item.action)}}</td><td>{{item.title or '–'}}</td><td>{{item.member_name or '–'}}</td><td>{{item.staff_name or 'System'}}</td><td>{{item.details or '–'}}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
 {% endblock %}
