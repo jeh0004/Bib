@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}{{book.title}} – LeihGut{% endblock %}
 {% block content %}
-<nav aria-label="Navigation" class="mb-4"><a href="{{url_for('catalog')}}" class="text-decoration-none">← Zurück zum Katalog</a></nav>
+<nav aria-label="Navigation" class="mb-4"><a href="{{back_url}}" class="text-decoration-none">← Zurück zur Trefferliste</a></nav>
 <div class="row g-4 align-items-start">
   <div class="col-lg-8">
     <article class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
@@ -16,8 +16,8 @@
           {% if book.category %}<span class="badge bg-light text-dark border mb-2">{{book.category}}</span>{% endif %}
           <h1 class="h2 mb-2">{{book.title}}</h1>
           <p class="fs-5 text-secondary mb-3">{{book.author if book.author and book.author != 'Unbekannt' else 'Autor nicht angegeben'}}</p>
-          {% if extra_details.get('Gebietsthema') %}<p class="mb-2"><i class="bi bi-geo-alt text-secondary me-2"></i>{{extra_details['Gebietsthema']}}</p>{% endif %}
-          {% if extra_details.get('Sachthema') %}<p class="mb-2"><i class="bi bi-compass text-secondary me-2"></i>{{extra_details['Sachthema']}}</p>{% endif %}
+          {% if book.area %}<p class="mb-2"><i class="bi bi-geo-alt text-secondary me-2"></i>{{book.area}}</p>{% endif %}
+          {% if book.topic %}<p class="mb-2"><i class="bi bi-compass text-secondary me-2"></i>{{book.topic}}</p>{% endif %}
           <div class="small text-muted mt-3">Bibliotheksbestand · {{book.total_copies}} {% if book.total_copies == 1 %}Exemplar{% else %}Exemplare{% endif %}</div>
         </div>
       </div>
@@ -30,22 +30,18 @@
     </div></section>
     {% endif %}
 
-    {% if book.isbn or book.publisher or book.published or book.pages or extra_details %}
+    {% if book.isbn or book.publisher or book.published or book.pages or book.area or book.topic or book.book_index %}
     <section class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
       <h2 class="h5 mb-3"><i class="bi bi-info-circle me-2 text-secondary"></i>Buchinformationen</h2>
       <dl class="row mb-0 gy-3">
-        {% if book.publisher or extra_details.get('Verlag') %}<dt class="col-sm-4 text-secondary fw-normal">Verlag</dt><dd class="col-sm-8 mb-0">{{book.publisher or extra_details.get('Verlag')}}</dd>{% endif %}
-        {% if book.published or extra_details.get('Auflagedatum') %}<dt class="col-sm-4 text-secondary fw-normal">Erscheinungsjahr / Auflage</dt><dd class="col-sm-8 mb-0">{{book.published or extra_details.get('Auflagedatum')}}</dd>{% endif %}
+        {% if book.publisher %}<dt class="col-sm-4 text-secondary fw-normal">Verlag</dt><dd class="col-sm-8 mb-0">{{book.publisher}}</dd>{% endif %}
+        {% if book.published %}<dt class="col-sm-4 text-secondary fw-normal">Erscheinungsjahr / Auflage</dt><dd class="col-sm-8 mb-0">{{book.published}}</dd>{% endif %}
         {% if book.pages %}<dt class="col-sm-4 text-secondary fw-normal">Umfang</dt><dd class="col-sm-8 mb-0">{{book.pages}} Seiten</dd>{% endif %}
         {% if book.isbn %}<dt class="col-sm-4 text-secondary fw-normal">ISBN</dt><dd class="col-sm-8 mb-0" style="overflow-wrap:anywhere">{{book.isbn}}</dd>{% endif %}
         {% if book.category %}<dt class="col-sm-4 text-secondary fw-normal">Kategorie</dt><dd class="col-sm-8 mb-0">{{book.category}}</dd>{% endif %}
-        {% for key,value in extra_details.items() %}
-          {% if key not in ['Verlag','Auflagedatum','Gebietsthema','Sachthema'] %}
-          <dt class="col-sm-4 text-secondary fw-normal">{{key}}</dt><dd class="col-sm-8 mb-0" style="overflow-wrap:anywhere">{{value}}</dd>
-          {% endif %}
-        {% endfor %}
-        {% if extra_details.get('Gebietsthema') %}<dt class="col-sm-4 text-secondary fw-normal">Gebiet</dt><dd class="col-sm-8 mb-0">{{extra_details['Gebietsthema']}}</dd>{% endif %}
-        {% if extra_details.get('Sachthema') %}<dt class="col-sm-4 text-secondary fw-normal">Thema</dt><dd class="col-sm-8 mb-0">{{extra_details['Sachthema']}}</dd>{% endif %}
+        {% if book.area %}<dt class="col-sm-4 text-secondary fw-normal">Gebiet</dt><dd class="col-sm-8 mb-0">{{book.area}}</dd>{% endif %}
+        {% if book.topic %}<dt class="col-sm-4 text-secondary fw-normal">Thema</dt><dd class="col-sm-8 mb-0">{{book.topic}}</dd>{% endif %}
+        {% if book.book_index %}<dt class="col-sm-4 text-secondary fw-normal">Buchindex</dt><dd class="col-sm-8 mb-0">{{book.book_index}}</dd>{% endif %}
       </dl>
     </div></section>
     {% endif %}
@@ -57,7 +53,7 @@
       {% else %}<p class="text-secondary fw-semibold mb-3"><i class="bi bi-clock me-1"></i>Aktuell kein Exemplar frei</p>{% endif %}
       {% if my_loan %}
         {% if my_loan.status == 'reserved' %}
-          <div class="alert alert-success"><strong>Reserviert – bitte in der Bibliothek abholen</strong><p class="mb-0 mt-1">Deine Reservierung ist eingegangen. Ein Bibliothekar verbucht die Ausgabe bei der Übergabe.</p></div>
+          <div class="alert alert-success"><strong>Reserviert – bitte in der Bibliothek abholen</strong><p class="mb-0 mt-1">Deine Reservierung ist eingegangen. Ein Bibliothekar verbucht die Ausgabe bei der Übergabe.</p>{% if my_loan.reservation_expires_at %}<p class="mb-0 mt-1"><strong>Abholfrist:</strong> {{my_loan.reservation_expires_at|de_date}}</p>{% endif %}</div>
         {% else %}
           <div class="alert alert-info"><strong>Du hast dieses Buch ausgeliehen.</strong>{% if my_loan.due_date %}<p class="mb-0 mt-1">Rückgabe bis {{my_loan.due_date|de_date}}</p>{% endif %}</div>
         {% endif %}
