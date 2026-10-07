@@ -49,10 +49,20 @@ PUBLISHER_FIXES = {
 TITLE_REPLACEMENTS = {
     77: ("Tennegebirge", "Tennengebirge"),
     158: ("Außergfern", "Außerfern"),
+    421: ("Tartra", "Tatra"),
+    465: ("Fernwanderwg E1 Deutschlan Süd", "Fernwanderweg E1 Deutschland Süd"),
     554: ("Gottardweg", "Gotthardweg"),
 }
 
+EXACT_BOOK_FIXES = {
+    464: {
+        "isbn": "9783771805050",
+        "author": "Hans Schmidt",
+    },
+}
+
 AREA_FIXES = {
+    "Costa del Azahr": "Costa del Azahar",
     "Gottard": "Gotthard",
 }
 
@@ -73,7 +83,7 @@ def migrate(db):
     needed={"id","title"}
     if not needed.issubset(columns):
         return 0
-    selected=["id"]+[c for c in ("title","category","topic","publisher","area") if c in columns]
+    selected=["id"]+[c for c in ("title","author","isbn","category","topic","publisher","area") if c in columns]
     rows=db.execute("SELECT "+",".join(selected)+" FROM books ORDER BY id").fetchall()
     changed=0
     with db:
@@ -92,6 +102,9 @@ def migrate(db):
                 old,new=TITLE_REPLACEMENTS[row["id"]]
                 if old in row["title"]:
                     updates["title"]=row["title"].replace(old,new)
+            for field,value in EXACT_BOOK_FIXES.get(row["id"],{}).items():
+                if field in row:
+                    updates[field]=value
             updates={k:v for k,v in updates.items() if v!=row.get(k)}
             if updates:
                 db.execute("UPDATE books SET "+",".join(f"{k}=?" for k in updates)+" WHERE id=?",
