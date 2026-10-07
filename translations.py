@@ -415,7 +415,7 @@ STRINGS = {
         'flash_pw_errors': 'Bitte korrigiere die Passwortfehler.',
         'flash_already_reserved': 'Du hast dieses Buch bereits reserviert oder ausgeliehen.',
         'flash_not_available': 'Keine Exemplare verfügbar.',
-        'flash_reserved_ok': 'Buch erfolgreich reserviert! Hole es im Vereinsheim ab.',
+        'flash_reserved_ok': 'Buch erfolgreich reserviert! Hole es am Bunker ab.',
         'flash_no_active_loan': 'Kein aktives Ausleihe gefunden.',
         'flash_return_ok': 'Rückgabe vermerkt. Danke!',
         'flash_book_added': 'Buch "{title}" hinzugefügt.',
