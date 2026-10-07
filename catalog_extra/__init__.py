@@ -306,7 +306,21 @@ def cover_suggestions(book):
 @bp.get('/')
 def index():
     books=db().execute('SELECT b.*,COUNT(c.id) copies FROM books b LEFT JOIN book_copies c ON b.id=c.book_id GROUP BY b.id ORDER BY b.title').fetchall()
-    return view('''<h1 class="h3">Bücher verwalten</h1><p class="text-muted">ISBN-Daten und Cover ergänzen, Bücher bearbeiten und Exemplare verwalten.</p><div class="d-flex flex-wrap gap-2 mb-4"><a class="btn btn-primary" href="{{url_for('catalog_extra.add')}}">Buch hinzufügen</a><a class="btn btn-outline-secondary" href="{{url_for('catalog_extra.inventory')}}">Inventarliste</a><form method="post" action="{{url_for('catalog_extra.enrich_missing')}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-outline-primary">Fehlende ISBN-Daten ergänzen (bis zu 10)</button></form></div><div class="list-group">{% for b in books %}<a class="list-group-item list-group-item-action d-flex align-items-center gap-3" href="{{url_for('catalog_extra.detail',book_id=b.id)}}">{% if b.cover_url %}<img src="{{b.cover_url}}" width="42" height="62" style="object-fit:contain" alt="">{% else %}<span class="fs-2">📖</span>{% endif %}<span class="flex-grow-1"><strong>{{b.title}}</strong><br><span class="text-muted small">{{b.author}} · {{b.copies}} Exemplare</span></span><span aria-hidden="true">›</span></a>{% endfor %}</div>''',books=books)
+    stats=db().execute("""SELECT COUNT(*) total,
+        SUM(CASE WHEN cover_url IS NOT NULL AND TRIM(cover_url)!='' THEN 1 ELSE 0 END) covered,
+        SUM(CASE WHEN cover_status='review' THEN 1 ELSE 0 END) review
+        FROM books""").fetchone()
+    return view('''<h1 class="h3">Bücher verwalten</h1><p class="text-muted">ISBN-Daten, Cover und Exemplare verwalten.</p>
+    <div class="row g-2 mb-3">
+      <div class="col-auto"><span class="badge text-bg-light border fs-6">{{stats.covered or 0}} / {{stats.total}} mit Cover</span></div>
+      <div class="col-auto"><span class="badge text-bg-warning fs-6">{{stats.review or 0}} zur Prüfung</span></div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mb-4"><a class="btn btn-primary" href="{{url_for('catalog_extra.add')}}">Buch hinzufügen</a>
+    <a class="btn btn-outline-secondary" href="{{url_for('catalog_extra.inventory')}}">Inventarliste</a>
+    <a class="btn btn-outline-warning" href="{{url_for('catalog_extra.cover_review')}}">Cover prüfen</a>
+    <form method="post" action="{{url_for('catalog_extra.scan_covers')}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-outline-success">Fehlende Cover suchen (bis zu 10)</button></form>
+    <form method="post" action="{{url_for('catalog_extra.enrich_missing')}}"><input type="hidden" name="csrf_token" value="{{session.csrf_token}}"><button class="btn btn-outline-primary">Fehlende ISBN-Daten ergänzen (bis zu 10)</button></form></div>
+    <div class="list-group">{% for b in books %}<a class="list-group-item list-group-item-action d-flex align-items-center gap-3" href="{{url_for('catalog_extra.detail',book_id=b.id)}}">{% if b.cover_url %}<img src="{{b.cover_url}}" width="42" height="62" style="object-fit:contain" alt="">{% else %}<span class="fs-2">📖</span>{% endif %}<span class="flex-grow-1"><strong>{{b.title}}</strong><br><span class="text-muted small">{{b.author}} · {{b.copies}} Exemplare{% if b.cover_status=='review' %} · Cover prüfen{% endif %}</span></span><span aria-hidden="true">›</span></a>{% endfor %}</div>''',books=books,stats=stats)
 @bp.post('/enrich-missing')
 def enrich_missing():
     conn=db()
