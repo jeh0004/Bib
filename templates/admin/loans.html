@@ -64,7 +64,7 @@
   </div>
 </div>
 
-<section class="mb-4">
+<section class="mb-4" id="reservierungen">
   <div class="d-flex justify-content-between align-items-center mb-2">
     <h2 class="h5 mb-0">Reservierungen zur Ausgabe</h2>
     {% if stats.reserved %}<span class="badge bg-warning text-dark">{{stats.reserved}} offen</span>{% endif %}
@@ -177,7 +177,7 @@
             <input type="hidden" name="csrf_token" value="{{session.csrf_token}}">
             <button name="action" value="return" class="btn btn-sm btn-outline-success" onclick="return confirm('Rückgabe tatsächlich entgegengenommen?')">Rücknahme</button>
           </form>
-          {% elif loan.status=='reserved' %}<button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#confirmModal{{loan.id}}">Ausgeben</button>{% endif %}
+          {% elif loan.status=='reserved' %}<a class="btn btn-sm btn-outline-success" href="{{url_for('admin_loans',status='reserved')}}#reservierungen">Zur Ausgabe</a>{% endif %}
         </td>
       </tr>
       {% endfor %}
