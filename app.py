@@ -494,12 +494,22 @@ def create_reservation(db, book_id, user_id):
         ).fetchone()
         if first and first['user_id'] != user_id:
             raise ValueError('waitlist_priority')
-        reservation_days=db.execute("SELECT reservation_days FROM loan_policy WHERE id=1").fetchone()[0]
-        db.execute(
-            """INSERT INTO loans (book_id,user_id,status,reserved_at,reservation_expires_at)
-               VALUES (?,?,'reserved',datetime('now'),datetime('now', ?))""",
-            (book_id, user_id, f'+{reservation_days} days')
-        )
+        try:
+            reservation_days=db.execute("SELECT reservation_days FROM loan_policy WHERE id=1").fetchone()[0]
+        except sqlite3.OperationalError:
+            reservation_days=7
+        loan_cols={r[1] for r in db.execute('PRAGMA table_info(loans)')}
+        if 'reservation_expires_at' in loan_cols:
+            db.execute(
+                """INSERT INTO loans (book_id,user_id,status,reserved_at,reservation_expires_at)
+                   VALUES (?,?,'reserved',datetime('now'),datetime('now', ?))""",
+                (book_id, user_id, f'+{reservation_days} days')
+            )
+        else:
+            db.execute(
+                "INSERT INTO loans (book_id,user_id,status,reserved_at) VALUES (?,?,'reserved',datetime('now'))",
+                (book_id,user_id)
+            )
         if first:
             db.execute("DELETE FROM loan_waitlist WHERE book_id=? AND user_id=?", (book_id,user_id))
         db.commit()
