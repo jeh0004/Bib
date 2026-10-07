@@ -79,6 +79,27 @@ class CoverWorkflowTests(unittest.TestCase):
             self.assertEqual(row['cover_status'],'reviewed')
             self.assertEqual(row['cover_source'],'Google Books')
 
+    def test_specialist_exact_isbn_candidate_stays_manual_review(self):
+        candidate=dict(source='Das Landkartenhaus',title='Kaiser Test',authors='Anna Autor',
+                       cover_url='https://www.das-landkartenhaus.de/media/cover.jpg',
+                       isbn='9781234567897',publisher='Test Verlag',
+                       confidence=94,exact_isbn=True,query='Spezialquelle',
+                       auto_eligible=False,
+                       product_url='https://www.das-landkartenhaus.de/kaiser-test')
+        with patch('catalog_extra.expanded_cover_candidates',return_value=[candidate]):
+            response=self.post('/admin/catalog-extra/covers/scan')
+        self.assertEqual(response.status_code,302)
+        with module.app.app_context():
+            db=module.get_db()
+            book=db.execute("SELECT cover_url,cover_status FROM books WHERE id=?",(self.book_id,)).fetchone()
+            self.assertIsNone(book['cover_url'])
+            self.assertEqual(book['cover_status'],'review')
+            row=db.execute("""SELECT source,source_url,status FROM cover_candidates
+                              WHERE book_id=?""",(self.book_id,)).fetchone()
+            self.assertEqual(row['source'],'Das Landkartenhaus')
+            self.assertEqual(row['source_url'],'https://www.das-landkartenhaus.de/kaiser-test')
+            self.assertEqual(row['status'],'pending')
+
     def test_manual_cover_upload_is_stored_locally(self):
         # Minimal JPEG signature is sufficient for server-side format validation.
         image=io.BytesIO(b'\xff\xd8\xff\xe0'+b'0'*64)
@@ -109,6 +130,8 @@ class CoverWorkflowTests(unittest.TestCase):
             self.assertIsNotNone(db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='cover_candidates'"
             ).fetchone())
+            candidate_columns={r[1] for r in db.execute("PRAGMA table_info(cover_candidates)")}
+            self.assertIn('source_url',candidate_columns)
 
 
 if __name__=='__main__':
