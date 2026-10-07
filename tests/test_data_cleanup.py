@@ -100,6 +100,12 @@ class CatalogCleanupTests(unittest.TestCase):
         self.db.execute("""INSERT INTO books
             (id,title,author,isbn,category,publisher,published,area,topic,book_index,description)
             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (464,'Europäischer Fernwanderweg 5 Bodensee-Adria','Unbekannt','9783763345519',
+             'Wanderführer','Kümmerly+Frey','1983','Bodensee-Adria','Fernwandern','Fn 82',
+             json.dumps({'Auflagedatum':'1983'},ensure_ascii=False)))
+        self.db.execute("""INSERT INTO books
+            (id,title,author,isbn,category,publisher,published,area,topic,book_index,description)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
             (554,'Gottardweg Basel - Mailand','Unbekannt','9783763340002',
              'Wanderführer alpin','SAC','2010','Gottard','Kompass Wanderbuch','FN 1',
              json.dumps({'Auflagedatum':'2010'},ensure_ascii=False)))
@@ -112,6 +118,9 @@ class CatalogCleanupTests(unittest.TestCase):
         self.assertEqual(r['area'],'Gotthard')
         self.assertEqual(r['topic'],'Bergsteigen Wandern')
         self.assertIn('Tennengebirge',r['title'])
+        r=self.db.execute("SELECT * FROM books WHERE id=464").fetchone()
+        self.assertEqual(r['isbn'],'9783771805050')
+        self.assertEqual(r['author'],'Hans Schmidt')
         r=self.db.execute("SELECT * FROM books WHERE id=554").fetchone()
         self.assertEqual(r['category'],'Wanderführer')
         self.assertEqual(r['publisher'],'SAC Verlag')
