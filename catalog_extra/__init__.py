@@ -350,6 +350,109 @@ def enrich_missing():
     flash(f'{changed} Bücher ergänzt, {failed} ISBN-Abfragen ohne Treffer oder mit Fehler. Nächste Gruppe mit erneutem Klick.','info')
     return redirect(url_for('.index'))
 
+@bp.post('/covers/scan')
+def scan_covers():
+    conn=db()
+    after_id=session.get('cover_scan_after_id',0)
+    rows=conn.execute("""SELECT * FROM books
+        WHERE (cover_url IS NULL OR TRIM(cover_url)='')
+          AND id>? ORDER BY id LIMIT 10""",(after_id,)).fetchall()
+    if not rows:
+        session['cover_scan_after_id']=0
+        flash('Alle Bücher ohne Cover wurden einmal durchsucht. Mit erneutem Klick beginnt ein neuer Durchlauf.','info')
+        return redirect(url_for('.cover_review'))
+    auto=0; review=0; none=0
+    for book in rows:
+        candidates=expanded_cover_candidates(book)
+        with conn:
+            _save_candidates(conn,book,candidates)
+            if candidates:
+                best=candidates[0]
+                second=candidates[1]['confidence'] if len(candidates)>1 else -1
+                if best['confidence']>=95 and best['exact_isbn'] and best['confidence']-second>=5:
+                    _apply_cover(conn,book['id'],best['cover_url'],best['source'],'auto',best['confidence'])
+                    auto+=1
+                else:
+                    conn.execute("""UPDATE books SET cover_status='review',
+                                  cover_checked_at=datetime('now') WHERE id=?""",(book['id'],))
+                    review+=1
+            else:
+                conn.execute("""UPDATE books SET cover_status='missing',
+                              cover_checked_at=datetime('now') WHERE id=?""",(book['id'],))
+                none+=1
+    session['cover_scan_after_id']=rows[-1]['id']
+    flash(f'Cover-Suche: {auto} sicher übernommen, {review} zur Prüfung, {none} ohne Treffer.','info')
+    return redirect(url_for('.cover_review'))
+
+@bp.get('/covers/review')
+def cover_review():
+    conn=db()
+    rows=conn.execute("""SELECT b.*,
+        (SELECT COUNT(*) FROM cover_candidates c WHERE c.book_id=b.id AND c.status='pending') AS candidate_count
+        FROM books b
+        WHERE b.cover_status='review'
+           OR ((b.cover_url IS NULL OR TRIM(b.cover_url)='') AND EXISTS(
+               SELECT 1 FROM cover_candidates c WHERE c.book_id=b.id AND c.status='pending'))
+        ORDER BY COALESCE(b.cover_checked_at,''),b.title LIMIT 40""").fetchall()
+    pending=[]
+    for book in rows:
+        candidates=conn.execute("""SELECT * FROM cover_candidates
+            WHERE book_id=? AND status='pending'
+            ORDER BY confidence DESC,id DESC LIMIT 6""",(book['id'],)).fetchall()
+        pending.append((book,candidates))
+    counts=conn.execute("""SELECT
+        COUNT(*) total,
+        SUM(CASE WHEN cover_url IS NOT NULL AND TRIM(cover_url)!='' THEN 1 ELSE 0 END) covered,
+        SUM(CASE WHEN cover_status='review' THEN 1 ELSE 0 END) review,
+        SUM(CASE WHEN cover_url IS NULL OR TRIM(cover_url)='' THEN 1 ELSE 0 END) missing
+        FROM books""").fetchone()
+    return render_template('admin_cover_review.html',pending=pending,counts=counts)
+
+@bp.post('/covers/<int:book_id>/choose/<int:candidate_id>')
+def choose_candidate(book_id,candidate_id):
+    conn=db()
+    candidate=conn.execute("""SELECT * FROM cover_candidates
+                              WHERE id=? AND book_id=? AND status='pending'""",
+                           (candidate_id,book_id)).fetchone()
+    if not candidate: abort(404)
+    with conn:
+        _apply_cover(conn,book_id,candidate['cover_url'],candidate['source'],'reviewed',candidate['confidence'])
+        conn.execute("UPDATE cover_candidates SET status='chosen' WHERE id=?",(candidate_id,))
+    flash('Cover übernommen.','success')
+    return redirect(request.form.get('next') or url_for('.cover_review'))
+
+@bp.post('/covers/<int:book_id>/reject')
+def reject_candidates(book_id):
+    conn=db()
+    with conn:
+        conn.execute("UPDATE cover_candidates SET status='rejected' WHERE book_id=? AND status='pending'",(book_id,))
+        conn.execute("""UPDATE books SET cover_status='missing',cover_checked_at=datetime('now')
+                        WHERE id=? AND (cover_url IS NULL OR TRIM(cover_url)='')""",(book_id,))
+    flash('Vorschläge verworfen. Das Buch bleibt für eine spätere Suche oder einen Upload offen.','info')
+    return redirect(request.form.get('next') or url_for('.cover_review'))
+
+@bp.post('/covers/<int:book_id>/upload')
+def upload_cover(book_id):
+    conn=db()
+    book=conn.execute('SELECT id,title,cover_url FROM books WHERE id=?',(book_id,)).fetchone()
+    if not book: abort(404)
+    storage=request.files.get('cover_file')
+    if not storage or not storage.filename:
+        flash('Bitte eine Coverdatei auswählen.','danger')
+        return redirect(request.form.get('next') or url_for('.detail',book_id=book_id))
+    try:
+        ext=_valid_cover_upload(storage)
+        from app import UPLOAD_DIR
+        os.makedirs(UPLOAD_DIR,exist_ok=True)
+        filename=f'book-cover-{book_id}-{secrets.token_hex(8)}.{ext}'
+        storage.save(os.path.join(UPLOAD_DIR,filename))
+        with conn:
+            _apply_cover(conn,book_id,url_for('serve_upload',filename=filename),'Manueller Upload','manual',100)
+        flash('Eigenes Cover gespeichert.','success')
+    except (ValueError,OSError) as exc:
+        flash(str(exc),'danger')
+    return redirect(request.form.get('next') or url_for('.detail',book_id=book_id))
+
 @bp.get('/inventory')
 def inventory():
     conn=db()
