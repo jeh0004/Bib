@@ -135,7 +135,7 @@ def get_settings(db):
 
 @app.context_processor
 def inject_settings():
-    lang = session.get('lang', 'en')
+    lang = session.get('lang', 'de')
     t = STRINGS.get(lang, STRINGS['en'])
     try:
         db = get_db()
@@ -153,7 +153,7 @@ def inject_settings():
 
 def flash_msg(key, category='info', **kwargs):
     """Flash a translated message looked up from STRINGS by key."""
-    lang = session.get('lang', 'en')
+    lang = session.get('lang', 'de')
     strings = STRINGS.get(lang, STRINGS['en'])
     msg = strings.get(key, STRINGS['en'].get(key, key))
     if kwargs:
@@ -206,7 +206,7 @@ def init_db():
 # ---------------------------------------------------------------------------
 
 def validate_password(pw):
-    lang = session.get('lang', 'en') if session else 'en'
+    lang = session.get('lang', 'de') if session else 'de'
     t = STRINGS.get(lang, STRINGS['en'])
     errors = []
     if len(pw) < 12:
@@ -585,7 +585,7 @@ def my_password():
             return render_template('my_password.html')
         errors = validate_password(pw)
         if pw != pw2:
-            errors.append(STRINGS.get(session.get('lang', 'en'), STRINGS['en'])['flash_pw_mismatch'])
+            errors.append(STRINGS.get(session.get('lang', 'de'), STRINGS['en'])['flash_pw_mismatch'])
         if errors:
             for e in errors:
                 flash(e, 'danger')
@@ -609,7 +609,7 @@ def change_password():
         pw2 = request.form.get('password2', '')
         errors = validate_password(pw)
         if pw != pw2:
-            errors.append(STRINGS.get(session.get('lang', 'en'), STRINGS['en'])['flash_pw_mismatch'])
+            errors.append(STRINGS.get(session.get('lang', 'de'), STRINGS['en'])['flash_pw_mismatch'])
         if errors:
             for e in errors:
                 flash(e, 'danger')
