@@ -39,15 +39,7 @@
         <p class="text-center"><a href="{{ url_for('register') }}">Als Mitglied registrieren</a></p>
         <p class="text-center text-muted small mb-2">
           {{ t.login_forgot }}
-        </p>
-        <p class="text-center mb-0">
-          <a href="{{ url_for('set_language', lang='en') }}"
-             class="text-decoration-none small {% if lang == 'en' %}fw-bold{% else %}text-muted{% endif %}">EN</a>
-          <span class="text-muted mx-1 small">|</span>
-          <a href="{{ url_for('set_language', lang='de') }}"
-             class="text-decoration-none small {% if lang == 'de' %}fw-bold{% else %}text-muted{% endif %}">DE</a>
-        </p>
-      </div>
+        </p>      </div>
     </div>
   </div>
 </div>
