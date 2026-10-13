@@ -29,6 +29,6 @@ CMD ["sh", "-c", \
         --workers 2 \
         --timeout 30 \
         --limit-request-line 4094 \
-        --limit-request-fields 20 \
+        --limit-request-fields 100 \
         --access-logfile - \
         app:app"]
