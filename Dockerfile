@@ -17,7 +17,6 @@ USER appuser
 VOLUME ["/data"]
 
 ENV DATABASE=/data/vereinsbibliothek.db
-ENV SECRET_KEY=change-me-in-production
 ENV COOKIE_SECURE=false
 
 EXPOSE 5000
